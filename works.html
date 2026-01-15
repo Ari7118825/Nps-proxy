@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhostProxy v4.4 | Debug & Traffic Monitor</title>
+    <script src="https://js.puter.com/v2/"></script>
+    <style>
+        :root {
+            --neon-green: #00ff41;
+            --dark-bg: #050505;
+            --panel-bg: #111;
+            --border-color: #333;
+            --log-blue: #44aaff;
+            --log-purple: #bb88ff;
+            --log-warn: #ffcc00;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--dark-bg);
+            color: var(--neon-green);
+            overflow: hidden;
+        }
+
+        #nav {
+            height: 60px; background: var(--panel-bg);
+            display: flex; align-items: center; padding: 0 20px; gap: 15px;
+            border-bottom: 2px solid var(--neon-green);
+            z-index: 100;
+        }
+
+        .brand { font-weight: bold; font-family: monospace; color: var(--neon-green); text-shadow: 0 0 5px var(--neon-green); }
+        
+        input {
+            flex: 1; padding: 10px; border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: #000; color: var(--neon-green);
+            font-family: 'Consolas', monospace; outline: none;
+        }
+
+        button {
+            padding: 8px 15px; cursor: pointer;
+            background: var(--neon-green); color: #000;
+            border: none; border-radius: 4px; font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.8; }
+        button.alt { background: #333; color: #fff; }
+
+        #main-layout { display: flex; height: calc(100% - 62px); width: 100%; }
+
+        .side-panel {
+            width: 320px; background: #000;
+            border-right: 1px solid var(--border-color);
+            display: flex; flex-direction: column;
+            font-family: 'Consolas', monospace; font-size: 11px;
+        }
+        #network-panel { border-right: none; border-left: 1px solid var(--border-color); }
+
+        .panel-header {
+            padding: 8px 12px; background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: bold; text-transform: uppercase;
+            display: flex; justify-content: space-between;
+        }
+
+        .log-container { flex: 1; padding: 10px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column-reverse; }
+
+        .log-entry { 
+            margin-bottom: 6px; border-left: 2px solid #222; 
+            padding-left: 8px; word-break: break-all; 
+            line-height: 1.4; animation: fadeIn 0.2s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+
+        .log-time { color: #666; margin-right: 5px; font-size: 10px; }
+        .log-error { color: #ff4444; border-left-color: #ff4444; background: rgba(255,68,68,0.05); }
+        .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
+        .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
+        .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
+
+        #viewer-container { flex: 1; background: #fff; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+        
+        /* Iframe styling */
+        #ghost-frame {
+            width: 100%; height: 100%; border: none; background: white;
+        }
+
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: none;
+            justify-content: center; align-items: center; z-index: 50; flex-direction: column;
+            backdrop-filter: blur(4px);
+        }
+
+        .spinner {
+            width: 50px; height: 50px;
+            border: 3px solid rgba(0,255,65,0.1);
+            border-left-color: var(--neon-green);
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #status-bar {
+            padding: 5px 15px; background: #111; border-top: 1px solid var(--border-color);
+            font-size: 10px; display: flex; gap: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="nav">
+    <span class="brand">GHOST_PROXY v4.4</span>
+    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL">
+    <button onclick="launch()">EXECUTE BYPASS</button>
+    <button class="alt" onclick="location.reload()">HARD RESET</button>
+</div>
+
+<div id="main-layout">
+    <div class="side-panel" id="console-panel">
+        <div class="panel-header"><span>Kernel Monitor</span><span id="console-count">0</span></div>
+        <div id="console-log" class="log-container"></div>
+    </div>
+
+    <div id="viewer-container">
+        <iframe id="ghost-frame"></iframe>
+        <div id="loader">
+            <div class="spinner"></div>
+            <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green); text-align: center;">
+                INJECTING GHOST FRAME...<br>
+                <span id="load-subtext" style="font-size: 10px; color: #888;">Synchronizing Environment</span>
+            </p>
+        </div>
+        <div id="status-bar">
+            <span>MODE: IFRAME_ISOLATION</span>
+            <span>LAST STATUS: <span id="last-status">IDLE</span></span>
+        </div>
+    </div>
+
+    <div class="side-panel" id="network-panel">
+        <div class="panel-header"><span>Traffic Analyzer</span><span id="net-count">0</span></div>
+        <div id="network-log" class="log-container"></div>
+    </div>
+</div>
+
+<script>
+const ghostFrame = document.getElementById('ghost-frame');
+const urlInput = document.getElementById('url-input');
+const consoleLog = document.getElementById('console-log');
+const networkLog = document.getElementById('network-log');
+const loader = document.getElementById('loader');
+
+let sessionCookies = "";
+
+function uiLog(target, message, type = 'info') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${type}`;
+    const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+    target.prepend(entry);
+    
+    const countId = target.id === 'console-log' ? 'console-count' : 'net-count';
+    const counter = document.getElementById(countId);
+    counter.innerText = parseInt(counter.innerText) + 1;
+}
+
+// Listen for the "Ghost Watcher" to report redirects or clicks
+window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (data.type === 'GHOST_NAV') {
+        uiLog(consoleLog, `WATCHER: Detected move to ${data.url}`, 'success');
+        request(data.url);
+    }
+});
+
+async function launch() {
+    request(urlInput.value);
+}
+
+async function request(targetUrl, method = 'GET', body = null) {
+    if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+    urlInput.value = targetUrl;
+    uiLog(consoleLog, `PULL: ${targetUrl}`, "info");
+    uiLog(networkLog, `${method} ${targetUrl}`, "net");
+    
+    loader.style.display = 'flex';
+
+    try {
+        const options = {
+            method: method,
+            headers: {
+                'Cookie': sessionCookies,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            }
+        };
+        
+        if (body) {
+            options.body = body;
+            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        }
+
+        const response = await puter.net.fetch(targetUrl, options);
+        document.getElementById('last-status').innerText = response.status;
+        
+        const newCookies = response.headers.get('set-cookie');
+        if (newCookies) sessionCookies = newCookies;
+
+        let html = await response.text();
+        renderToFrame(html, targetUrl);
+
+    } catch (err) {
+        uiLog(consoleLog, `NET_ERR: ${err.message}`, "error");
+    } finally {
+        setTimeout(() => { loader.style.display = 'none'; }, 500);
+    }
+}
+
+function renderToFrame(html, baseUrl) {
+    const isSpecialPage = baseUrl.includes('/servers') || baseUrl.includes('proxy.php');
+    
+    // Patch scripts for frame compatibility
+    let patched = html
+        .replace(/window\.top/gi, 'window.self')
+        .replace(/top\.location/gi, 'window.self.location')
+        .replace(/parent\.location/gi, 'window.self.location');
+
+    // The Watcher script monitors for changes and handles navigation
+    const watcher = `
+        <script>
+        (function() {
+            window.top = window.self;
+            window.parent = window.self;
+
+            const notify = (url) => {
+                window.parent.postMessage({ type: 'GHOST_NAV', url: new URL(url, "${baseUrl}").href }, '*');
+            };
+
+            // Intercept standard location changes
+            window.location.replace = notify;
+            window.location.assign = notify;
+
+            // Intercept clicks
+            document.addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (a && a.href && !a.href.startsWith('#') && !a.href.startsWith('javascript:')) {
+                    e.preventDefault();
+                    notify(a.href);
+                }
+            }, true);
+
+            // Intercept form submits
+            document.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const form = e.target;
+                const fd = new FormData(form);
+                const data = new URLSearchParams(fd).toString();
+                const action = new URL(form.getAttribute('action') || '', "${baseUrl}").href;
+                notify(action); 
+                // Note: Simplified for the demo, multi-method handling usually goes here
+            }, true);
+        })();
+        <\/script>
+    `;
+
+    // Construct the document inside the frame
+    const blob = new Blob([`
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <base href="${baseUrl}">
+                ${isSpecialPage ? '' : watcher}
+            </head>
+            <body>
+                ${patched}
+            </body>
+        </html>
+    `], { type: 'text/html' });
+
+    ghostFrame.src = URL.createObjectURL(blob);
+}
+
+window.onload = () => { uiLog(consoleLog, "ENGINE: Iframe Bridge Online."); };
+urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
+</script>
+
+</body>
+</html>
