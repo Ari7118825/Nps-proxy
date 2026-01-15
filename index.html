@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy v4.4 | Debug & Traffic Monitor</title>
+    <title>GhostProxy v4.4 | Iframe-Intercept Mode</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -79,19 +79,24 @@
         .log-error { color: #ff4444; border-left-color: #ff4444; background: rgba(255,68,68,0.05); }
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
         .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
+        .log-warn { color: var(--log-warn); border-left-color: var(--log-warn); }
         .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
         #viewer-container { flex: 1; background: #fff; position: relative; overflow: hidden; display: flex; flex-direction: column; }
         
-        /* Iframe styling */
-        #ghost-frame {
-            width: 100%; height: 100%; border: none; background: white;
+        #render-target { 
+            flex: 1; 
+            position: relative; 
+            width: 100%; 
+            height: 100%; 
+            background: white; 
+            border: none;
         }
 
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.9); display: none;
-            justify-content: center; align-items: center; z-index: 50; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 1000; flex-direction: column;
             backdrop-filter: blur(4px);
         }
 
@@ -120,39 +125,52 @@
 
 <div id="main-layout">
     <div class="side-panel" id="console-panel">
-        <div class="panel-header"><span>Kernel Monitor</span><span id="console-count">0</span></div>
+        <div class="panel-header">
+            <span>Kernel Monitor</span>
+            <span style="color: #666" id="console-count">0</span>
+        </div>
         <div id="console-log" class="log-container"></div>
     </div>
 
     <div id="viewer-container">
-        <iframe id="ghost-frame"></iframe>
         <div id="loader">
             <div class="spinner"></div>
             <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green); text-align: center;">
-                INJECTING GHOST FRAME...<br>
-                <span id="load-subtext" style="font-size: 10px; color: #888;">Synchronizing Environment</span>
+                INTERCEPTING TRAFFIC...<br>
+                <span id="load-subtext" style="font-size: 10px; color: #888;">Establishing Iframe Tunnel</span>
             </p>
         </div>
+        <div id="placeholder" style="position: absolute; width: 100%; top: 40%; text-align: center; color: #333; z-index: 1;">
+            <h2>Ghost Engine v4.4</h2>
+            <p>Iframe Interception Enabled</p>
+        </div>
+        <iframe id="render-target" sandbox="allow-scripts allow-forms allow-same-origin allow-modals"></iframe>
+        
         <div id="status-bar">
-            <span>MODE: IFRAME_ISOLATION</span>
+            <span>NODES: <span id="node-count">0</span></span>
             <span>LAST STATUS: <span id="last-status">IDLE</span></span>
+            <span>MODE: IFRAME_INJECTION</span>
         </div>
     </div>
 
     <div class="side-panel" id="network-panel">
-        <div class="panel-header"><span>Traffic Analyzer</span><span id="net-count">0</span></div>
+        <div class="panel-header">
+            <span>Traffic Analyzer</span>
+            <span style="color: #666" id="net-count">0</span>
+        </div>
         <div id="network-log" class="log-container"></div>
     </div>
 </div>
 
 <script>
-const ghostFrame = document.getElementById('ghost-frame');
+const iframe = document.getElementById('render-target');
 const urlInput = document.getElementById('url-input');
 const consoleLog = document.getElementById('console-log');
 const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
+const loadSubtext = document.getElementById('load-subtext');
 
-let sessionCookies = "";
+let currentUrl = "";
 
 function uiLog(target, message, type = 'info') {
     const entry = document.createElement('div');
@@ -166,34 +184,73 @@ function uiLog(target, message, type = 'info') {
     counter.innerText = parseInt(counter.innerText) + 1;
 }
 
-// Listen for the "Ghost Watcher" to report redirects or clicks
+// Detection for IP addresses or proxy server endpoints
+function isFinalProxyNode(url) {
+    if (!url) return false;
+    // Regex for IP address pattern (v4)
+    const ipPattern = /(?:[0-9]{1,3}\.){3}[0-9]{1,3}/;
+    // Common proxy session patterns
+    const sessionPattern = /__cp[0-9]\.php|proxy\.php\?s=/;
+    
+    return ipPattern.test(url) || sessionPattern.test(url);
+}
+
+function forceParentRedirect(url) {
+    uiLog(consoleLog, `CRITICAL: IP node detected. Executing full parent redirect to ${url}`, "success");
+    // We update the entire parent window location to escape the app environment
+    window.location.replace(url);
+}
+
 window.addEventListener('message', (event) => {
     const data = event.data;
-    if (data.type === 'GHOST_NAV') {
-        uiLog(consoleLog, `WATCHER: Detected move to ${data.url}`, 'success');
-        request(data.url);
+    if (data.type === 'GHOST_CONSOLE') {
+        uiLog(consoleLog, `[IFRAME] ${data.msg}`, data.level || 'info');
+    } else if (data.type === 'GHOST_NET_REQUEST') {
+        uiLog(networkLog, `<b>${data.method}</b> ${data.url}`, 'net');
+        
+        // Check for IP node here too
+        if (isFinalProxyNode(data.url)) {
+            forceParentRedirect(data.url);
+        } else {
+            handleIframeRequest(data);
+        }
+    } else if (data.type === 'GHOST_NAV') {
+        if (isFinalProxyNode(data.url)) {
+            forceParentRedirect(data.url);
+        } else {
+            launch(data.url);
+        }
     }
 });
 
-async function launch() {
-    request(urlInput.value);
+async function launch(targetUrl) {
+    const url = targetUrl || urlInput.value;
+    request(url);
 }
 
-async function request(targetUrl, method = 'GET', body = null) {
+async function request(targetUrl, method = 'GET', body = null, depth = 0) {
+    if (depth > 10) return uiLog(consoleLog, "CRITICAL: Max jump limit reached.", "error");
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+
+    // Check if the request is trying to hit an IP or node session directly
+    if (isFinalProxyNode(targetUrl)) {
+        forceParentRedirect(targetUrl);
+        return;
+    }
+
+    currentUrl = targetUrl;
     urlInput.value = targetUrl;
-    uiLog(consoleLog, `PULL: ${targetUrl}`, "info");
-    uiLog(networkLog, `${method} ${targetUrl}`, "net");
+    uiLog(consoleLog, `CORE: Intercepting ${targetUrl}`, "info");
     
     loader.style.display = 'flex';
+    loadSubtext.innerText = `Routing through Puter Kernel...`;
 
     try {
         const options = {
             method: method,
             headers: {
-                'Cookie': sessionCookies,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             }
         };
         
@@ -205,84 +262,111 @@ async function request(targetUrl, method = 'GET', body = null) {
         const response = await puter.net.fetch(targetUrl, options);
         document.getElementById('last-status').innerText = response.status;
         
-        const newCookies = response.headers.get('set-cookie');
-        if (newCookies) sessionCookies = newCookies;
-
         let html = await response.text();
-        renderToFrame(html, targetUrl);
 
+        // CROXYPROXY SPECIFIC: Detect the "Launching" hang and extract IP redirect
+        if (html.includes('Launching...') || html.includes('id="loading-status"')) {
+            uiLog(consoleLog, "BYPASS: Stall detected. Searching for node URL...", "warn");
+            const match = html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/);
+            if (match) {
+                const jump = new URL(match[1], targetUrl).href;
+                return request(jump, 'GET', null, depth + 1);
+            }
+        }
+
+        injectIntoIframe(html, targetUrl);
     } catch (err) {
-        uiLog(consoleLog, `NET_ERR: ${err.message}`, "error");
+        uiLog(consoleLog, `CORE_ERR: ${err.message}`, "error");
     } finally {
-        setTimeout(() => { loader.style.display = 'none'; }, 500);
+        loader.style.display = 'none';
+        const placeholder = document.getElementById('placeholder');
+        if (placeholder) placeholder.style.display = 'none';
     }
 }
 
-function renderToFrame(html, baseUrl) {
-    const isSpecialPage = baseUrl.includes('/servers') || baseUrl.includes('proxy.php');
-    
-    // Patch scripts for frame compatibility
-    let patched = html
-        .replace(/window\.top/gi, 'window.self')
-        .replace(/top\.location/gi, 'window.self.location')
-        .replace(/parent\.location/gi, 'window.self.location');
-
-    // The Watcher script monitors for changes and handles navigation
-    const watcher = `
+function injectIntoIframe(html, baseUrl) {
+    const interceptorScript = `
         <script>
         (function() {
-            window.top = window.self;
-            window.parent = window.self;
+            const originUrl = "${baseUrl}";
+            const log = (level, msg) => window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
+            
+            // Check if current page is already an IP node
+            if (/(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/.test(window.location.href)) {
+                window.parent.postMessage({ type: 'GHOST_NAV', url: window.location.href }, '*');
+            }
 
-            const notify = (url) => {
-                window.parent.postMessage({ type: 'GHOST_NAV', url: new URL(url, "${baseUrl}").href }, '*');
-            };
-
-            // Intercept standard location changes
-            window.location.replace = notify;
-            window.location.assign = notify;
-
-            // Intercept clicks
-            document.addEventListener('click', (e) => {
-                const a = e.target.closest('a');
-                if (a && a.href && !a.href.startsWith('#') && !a.href.startsWith('javascript:')) {
+            document.addEventListener('click', e => {
+                const link = e.target.closest('a');
+                if (link && link.href && !link.href.startsWith('javascript:')) {
                     e.preventDefault();
-                    notify(a.href);
+                    window.parent.postMessage({ type: 'GHOST_NAV', url: link.href }, '*');
                 }
             }, true);
 
-            // Intercept form submits
-            document.addEventListener('submit', (e) => {
+            document.addEventListener('submit', e => {
                 e.preventDefault();
                 const form = e.target;
                 const fd = new FormData(form);
-                const data = new URLSearchParams(fd).toString();
-                const action = new URL(form.getAttribute('action') || '', "${baseUrl}").href;
-                notify(action); 
-                // Note: Simplified for the demo, multi-method handling usually goes here
+                const params = new URLSearchParams(fd).toString();
+                log('info', 'Form Submit Intercepted: ' + form.action);
+                window.parent.postMessage({ 
+                    type: 'GHOST_NET_REQUEST', 
+                    method: form.method || 'GET', 
+                    url: form.action, 
+                    body: params 
+                }, '*');
             }, true);
+
+            const oldFetch = window.fetch;
+            window.fetch = async (...args) => {
+                const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+                log('net', 'Fetch intercepted: ' + url);
+                
+                // If fetch is going to an IP node, force the parent redirect immediately
+                if (/(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/.test(url) || url.includes('__cp2.php')) {
+                    window.parent.postMessage({ type: 'GHOST_NAV', url: url }, '*');
+                }
+                return oldFetch(...args);
+            };
+
+            log('success', 'Ghost Interceptor v4.4 Initialized');
         })();
         <\/script>
     `;
 
-    // Construct the document inside the frame
+    let processedHtml = html
+        .replace(/src="\//g, `src="${new URL(baseUrl).origin}/`)
+        .replace(/href="\//g, `href="${new URL(baseUrl).origin}/`)
+        .replace(/if\s*\(top\s*!==\s*self\)/g, 'if(false)')
+        .replace(/top\.location/g, 'self.location');
+
     const blob = new Blob([`
         <!DOCTYPE html>
         <html>
-            <head>
-                <base href="${baseUrl}">
-                ${isSpecialPage ? '' : watcher}
-            </head>
-            <body>
-                ${patched}
-            </body>
+        <head>
+            <base href="${baseUrl}">
+            ${interceptorScript}
+        </head>
+        <body>
+            ${processedHtml}
+        </body>
         </html>
     `], { type: 'text/html' });
 
-    ghostFrame.src = URL.createObjectURL(blob);
+    iframe.src = URL.createObjectURL(blob);
 }
 
-window.onload = () => { uiLog(consoleLog, "ENGINE: Iframe Bridge Online."); };
+async function handleIframeRequest(data) {
+    uiLog(consoleLog, `PROXYING: ${data.url}`, "info");
+    request(data.url, data.method, data.body);
+}
+
+window.onload = () => {
+    uiLog(consoleLog, "SYSTEM: Iframe-Intercept Kernel Ready.");
+    uiLog(consoleLog, "INFO: Node-Detection Active.");
+};
+
 urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
 </script>
 
