@@ -149,7 +149,7 @@
         <div id="status-bar">
             <span>NODES: <span id="node-count">0</span></span>
             <span>LAST STATUS: <span id="last-status">IDLE</span></span>
-            <span>MODE: IFRAME_INJECTION</span>
+            <span>MODE: <span id="mode-text">IFRAME_INJECTION</span></span>
         </div>
     </div>
 
@@ -169,8 +169,10 @@ const consoleLog = document.getElementById('console-log');
 const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
 const loadSubtext = document.getElementById('load-subtext');
+const modeText = document.getElementById('mode-text');
 
 let currentUrl = "";
+let interceptionActive = true;
 
 function uiLog(target, message, type = 'info') {
     const entry = document.createElement('div');
@@ -184,39 +186,50 @@ function uiLog(target, message, type = 'info') {
     counter.innerText = parseInt(counter.innerText) + 1;
 }
 
-// Detection for IP addresses or proxy server endpoints
 function isFinalProxyNode(url) {
     if (!url) return false;
-    // Regex for IP address pattern (v4)
     const ipPattern = /(?:[0-9]{1,3}\.){3}[0-9]{1,3}/;
-    // Common proxy session patterns
     const sessionPattern = /__cp[0-9]\.php|proxy\.php\?s=/;
-    
     return ipPattern.test(url) || sessionPattern.test(url);
 }
 
-function forceParentRedirect(url) {
-    uiLog(consoleLog, `CRITICAL: IP node detected. Executing full parent redirect to ${url}`, "success");
-    // We update the entire parent window location to escape the app environment
-    window.location.replace(url);
+// NEW: Handover logic - redirect the iframe and stop listening
+function handoverToNative(url) {
+    if (!interceptionActive) return;
+    
+    uiLog(consoleLog, `HANDOVER: IP node detected. Switching to NATIVE mode.`, "warn");
+    uiLog(consoleLog, `DESTINATION: ${url}`, "info");
+    
+    // 1. Mark interception as disabled
+    interceptionActive = false;
+    modeText.innerText = "NATIVE_PASSTHROUGH";
+    modeText.style.color = "#ffcc00";
+
+    // 2. Redirect the iframe directly
+    // This removes the "Blob" URL and points it to the real server
+    iframe.src = url;
+    
+    uiLog(consoleLog, "SYSTEM: All interception hooks detached. Page is now live.", "success");
 }
 
 window.addEventListener('message', (event) => {
+    // If we've handed over, ignore any remaining messages from the previous blob state
+    if (!interceptionActive) return;
+
     const data = event.data;
     if (data.type === 'GHOST_CONSOLE') {
         uiLog(consoleLog, `[IFRAME] ${data.msg}`, data.level || 'info');
     } else if (data.type === 'GHOST_NET_REQUEST') {
         uiLog(networkLog, `<b>${data.method}</b> ${data.url}`, 'net');
         
-        // Check for IP node here too
         if (isFinalProxyNode(data.url)) {
-            forceParentRedirect(data.url);
+            handoverToNative(data.url);
         } else {
             handleIframeRequest(data);
         }
     } else if (data.type === 'GHOST_NAV') {
         if (isFinalProxyNode(data.url)) {
-            forceParentRedirect(data.url);
+            handoverToNative(data.url);
         } else {
             launch(data.url);
         }
@@ -224,6 +237,12 @@ window.addEventListener('message', (event) => {
 });
 
 async function launch(targetUrl) {
+    // If we were in native mode and user searches again, reset
+    if (!interceptionActive) {
+        interceptionActive = true;
+        modeText.innerText = "IFRAME_INJECTION";
+        modeText.style.color = "";
+    }
     const url = targetUrl || urlInput.value;
     request(url);
 }
@@ -232,9 +251,8 @@ async function request(targetUrl, method = 'GET', body = null, depth = 0) {
     if (depth > 10) return uiLog(consoleLog, "CRITICAL: Max jump limit reached.", "error");
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
 
-    // Check if the request is trying to hit an IP or node session directly
     if (isFinalProxyNode(targetUrl)) {
-        forceParentRedirect(targetUrl);
+        handoverToNative(targetUrl);
         return;
     }
 
@@ -264,7 +282,6 @@ async function request(targetUrl, method = 'GET', body = null, depth = 0) {
         
         let html = await response.text();
 
-        // CROXYPROXY SPECIFIC: Detect the "Launching" hang and extract IP redirect
         if (html.includes('Launching...') || html.includes('id="loading-status"')) {
             uiLog(consoleLog, "BYPASS: Stall detected. Searching for node URL...", "warn");
             const match = html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/);
@@ -309,7 +326,6 @@ function injectIntoIframe(html, baseUrl) {
                 const form = e.target;
                 const fd = new FormData(form);
                 const params = new URLSearchParams(fd).toString();
-                log('info', 'Form Submit Intercepted: ' + form.action);
                 window.parent.postMessage({ 
                     type: 'GHOST_NET_REQUEST', 
                     method: form.method || 'GET', 
@@ -321,9 +337,6 @@ function injectIntoIframe(html, baseUrl) {
             const oldFetch = window.fetch;
             window.fetch = async (...args) => {
                 const url = typeof args[0] === 'string' ? args[0] : args[0].url;
-                log('net', 'Fetch intercepted: ' + url);
-                
-                // If fetch is going to an IP node, force the parent redirect immediately
                 if (/(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/.test(url) || url.includes('__cp2.php')) {
                     window.parent.postMessage({ type: 'GHOST_NAV', url: url }, '*');
                 }
@@ -364,7 +377,6 @@ async function handleIframeRequest(data) {
 
 window.onload = () => {
     uiLog(consoleLog, "SYSTEM: Iframe-Intercept Kernel Ready.");
-    uiLog(consoleLog, "INFO: Node-Detection Active.");
 };
 
 urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
