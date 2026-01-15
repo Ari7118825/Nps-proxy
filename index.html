@@ -14,6 +14,7 @@
             --log-blue: #44aaff;
             --log-purple: #bb88ff;
             --log-warn: #ffcc00;
+            --log-err: #ff4444;
         }
 
         body, html {
@@ -76,6 +77,7 @@
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
         .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
         .log-warn { color: var(--log-warn); border-left-color: var(--log-warn); }
+        .log-error { color: var(--log-err); border-left-color: var(--log-err); }
         .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
         #viewer-container { flex: 1; background: #fff; position: relative; display: flex; flex-direction: column; }
@@ -106,7 +108,7 @@
 
 <div id="nav">
     <span class="brand">GHOST_PROXY v5.0</span>
-    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL">
+    <input type="text" id="url-input" value="https://www.google.com" placeholder="Enter Target URL or IP">
     <button onclick="launch()">INITIALIZE</button>
 </div>
 
@@ -119,14 +121,14 @@
     <div id="viewer-container">
         <div id="loader">
             <div class="spinner"></div>
-            <p style="margin-top: 15px; font-family: monospace; color: var(--neon-green);">INJECTING PUTER KERNEL...</p>
+            <p style="margin-top: 15px; font-family: monospace; color: var(--neon-green);" id="loader-text">INJECTING KERNEL...</p>
         </div>
         <div id="render-wrapper" style="height: 100%;">
              <div style="padding: 50px; text-align: center; color: #888; font-family: monospace;">AWAITING COMMAND...</div>
         </div>
         <div id="status-bar">
             <span>MODE: <span id="current-mode">STANDBY</span></span>
-            <span>TRAFFIC: <span id="traffic-stat" style="color:var(--neon-green)">PUTER_TUNNEL</span></span>
+            <span>TRAFFIC: <span id="traffic-stat" style="color:var(--neon-green)">DYNAMIC_ROUTING</span></span>
         </div>
     </div>
 
@@ -141,6 +143,7 @@ const wrapper = document.getElementById('render-wrapper');
 const consoleLog = document.getElementById('console-log');
 const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
+const loaderText = document.getElementById('loader-text');
 const urlInput = document.getElementById('url-input');
 
 function uiLog(target, message, type = 'info') {
@@ -151,9 +154,10 @@ function uiLog(target, message, type = 'info') {
     target.prepend(entry);
 }
 
-// Check if URL is an IP address to apply special routing
 function isIpAddress(url) {
-    return /(?:[0-9]{1,3}\.){3}[0-9]{1,3}/.test(url);
+    // Regex to detect pure IP addresses (v4)
+    const ipPattern = /^(?:http:\/\/|https:\/\/)?(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?(\/.*)?$/;
+    return ipPattern.test(url);
 }
 
 window.addEventListener('message', (event) => {
@@ -178,33 +182,53 @@ async function request(targetUrl, method = 'GET', body = null) {
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
     
     urlInput.value = targetUrl;
-    uiLog(consoleLog, `CORE: Intercepting request to ${targetUrl}`, "info");
-    
-    if (isIpAddress(targetUrl)) {
-        uiLog(consoleLog, `NODE_SECURE: IP detected. Forcing Puter Tunnel for anonymity.`, "warn");
-    }
-
     loader.style.display = 'flex';
     document.getElementById('current-mode').innerText = "TUNNEL_ACTIVE";
 
     try {
-        const options = {
-            method: method,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-            }
-        };
+        let html = "";
         
-        if (body) {
-            options.body = body;
-            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        if (isIpAddress(targetUrl)) {
+            uiLog(consoleLog, `NODE_SECURE: IP detected. Routing through CodeTabs CORS Engine...`, "warn");
+            loaderText.innerText = "BYPASSING IP RESTRICTIONS...";
+            
+            // Route through CodeTabs CORS API for IPs
+            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
+            const response = await fetch(proxyUrl);
+            html = await response.text();
+
+            // Fix for "OK" response - if the body is just "OK" or empty, something went wrong with the proxy
+            if (html.trim() === "OK" || html.length < 5) {
+                uiLog(consoleLog, `PROXY_ERR: Received invalid response from IP node. Attempting Puter fallback...`, "error");
+                const pResp = await puter.net.fetch(targetUrl);
+                html = await pResp.text();
+            }
+        } else {
+            uiLog(consoleLog, `CORE: Intercepting request via Puter Backbone...`, "info");
+            loaderText.innerText = "TUNNELING VIA PUTER...";
+            
+            const options = {
+                method: method,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                }
+            };
+            
+            if (body) {
+                options.body = body;
+                options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            }
+
+            const response = await puter.net.fetch(targetUrl, options);
+            html = await response.text();
         }
 
-        // Always route through Puter
-        const response = await puter.net.fetch(targetUrl, options);
-        let html = await response.text();
+        // Validation: if still empty or "OK", show error
+        if (!html || html.trim() === "OK") {
+            throw new Error("Target returned empty response or restricted access.");
+        }
 
-        // Handle CroxyProxy "Launching" screen redirect
+        // Handle common proxy redirects
         if (html.includes('Launching...') || html.includes('id="loading-status"')) {
             const match = html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/);
             if (match) {
@@ -214,8 +238,14 @@ async function request(targetUrl, method = 'GET', body = null) {
         }
 
         injectIntoIframe(html, targetUrl);
+        uiLog(consoleLog, `RENDER: Node ${targetUrl} successfully piped.`, "success");
+
     } catch (err) {
         uiLog(consoleLog, `FETCH_ERROR: ${err.message}`, "error");
+        wrapper.innerHTML = `<div style="padding:50px; color:red; font-family:monospace; text-align:center;">
+            [FATAL_ERROR] Could not establish connection to ${targetUrl}<br><br>
+            Reason: ${err.message}
+        </div>`;
     } finally {
         loader.style.display = 'none';
     }
@@ -231,52 +261,53 @@ function injectIntoIframe(html, baseUrl) {
         (function() {
             const log = (level, msg) => window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
             
-            // Rewrite all relative URLs to absolute based on the target IP/Domain
             const baseUrl = "${baseUrl}";
             
             document.addEventListener('click', e => {
                 const a = e.target.closest('a');
                 if (a && a.href && !a.href.startsWith('javascript')) {
+                    const url = new URL(a.href, baseUrl).href;
                     e.preventDefault();
-                    window.parent.postMessage({ type: 'GHOST_NAV', url: a.href }, '*');
+                    window.parent.postMessage({ type: 'GHOST_NAV', url: url }, '*');
                 }
             }, true);
 
             document.addEventListener('submit', e => {
                 e.preventDefault();
+                const action = new URL(e.target.action, baseUrl).href;
                 const fd = new FormData(e.target);
                 const params = new URLSearchParams(fd).toString();
                 window.parent.postMessage({ 
                     type: 'GHOST_NET_REQUEST', 
                     method: e.target.method, 
-                    url: e.target.action,
+                    url: action,
                     body: params
                 }, '*');
             }, true);
 
-            const oldFetch = window.fetch;
-            window.fetch = async (...args) => {
-                const url = typeof args[0] === 'string' ? args[0] : args[0].url;
-                window.parent.postMessage({ type: 'GHOST_NET_REQUEST', url: url }, '*');
-                // We return a fake pending promise because the parent will re-launch the request through Puter
-                return new Promise(() => {}); 
-            };
-
-            log('success', 'Puter Kernel successfully injected into node.');
+            log('success', 'Ghost-Kernel v5.0 Active.');
         })();
         <\/script>
     `;
 
-    // Patch common relative paths before injecting
+    // Basic URL patching for assets
+    const origin = new URL(baseUrl).origin;
     let processedHtml = html
-        .replace(/src="\//g, `src="${new URL(baseUrl).origin}/`)
-        .replace(/href="\//g, `href="${new URL(baseUrl).origin}/`);
+        .replace(/src="\//g, `src="${origin}/`)
+        .replace(/href="\//g, `href="${origin}/`)
+        .replace(/action="\//g, `action="${origin}/`);
 
     const blob = new Blob([`
         <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="UTF-8">
             <base href="${baseUrl}">
+            <style>
+                body { font-family: sans-serif; }
+                /* Prevent iframe breakouts */
+                html, body { overflow: auto !important; }
+            </style>
             ${interceptorScript}
         </head>
         <body>
@@ -289,7 +320,7 @@ function injectIntoIframe(html, baseUrl) {
 }
 
 urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
-uiLog(consoleLog, "SYSTEM: Puter-Backbone Kernel v5.0 Loaded.");
+uiLog(consoleLog, "SYSTEM: Hybrid Puter/CodeTabs Kernel v5.0 Ready.");
 </script>
 
 </body>
