@@ -2,90 +2,103 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple CodeTabs Proxy</title>
+    <title>Smart Scraping Proxy</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
-        #navbar { height: 50px; background: #333; display: flex; align-items: center; padding: 0 20px; color: white; }
-        #url-input { flex-grow: 1; margin: 0 10px; padding: 5px; border-radius: 4px; border: none; }
-        button { padding: 5px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
-        iframe { width: 100%; height: calc(100% - 50px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #121212; color: white; }
+        #controls { height: 60px; background: #1e1e1e; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #333; }
+        #url-input { flex: 1; margin: 0 15px; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 5px; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        iframe { width: 100%; height: calc(100% - 62px); border: none; background: white; }
+        .status { font-size: 12px; color: #888; margin-left: 10px; }
     </style>
 </head>
 <body>
 
-<div id="navbar">
-    <strong>Proxy:</strong>
-    <input type="text" id="url-input" placeholder="https://example.com" value="https://example.com">
-    <button onclick="loadPage()">Go</button>
+<div id="controls">
+    <strong>SmartProxy:</strong>
+    <input type="text" id="url-input" placeholder="Enter URL (e.g. croxyproxy.com)" value="https://www.croxyproxy.com">
+    <button onclick="requestPage()">Go</button>
+    <span class="status" id="status">Ready</span>
 </div>
 
 <iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
 <script>
-    const proxyApi = "https://api.codetabs.com/v1/proxy?quest=";
-    const iframe = document.getElementById('viewer');
-    const input = document.getElementById('url-input');
+    // --- CONFIGURATION ---
+    const API_KEY = "YOUR_SCRAPFLY_KEY_HERE"; // Get this from scrapfly.io
+    const SESSION_ID = "my-unique-proxy-session-" + Math.random().toString(36).substring(7);
+    
+    const viewer = document.getElementById('viewer');
+    const status = document.getElementById('status');
 
-    async function loadPage() {
-        let targetUrl = input.value.trim();
-        if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
-        
+    async function requestPage() {
+        const targetUrl = document.getElementById('url-input').value;
+        status.innerText = "Connecting to Scrapfly...";
+
+        // Scrapfly Parameters:
+        // - render_js=true: Runs the scripts on CroxyProxy
+        // - session: Keeps cookies so redirects to /servers work
+        // - proxy_pool=public_proxy: Bypasses simple blocks
+        const proxyUrl = `https://api.scrapfly.io/scrape?key=${API_KEY}` +
+                         `&url=${encodeURIComponent(targetUrl)}` +
+                         `&render_js=true` +
+                         `&session=${SESSION_ID}` +
+                         `&asp=true`;
+
         try {
-            const response = await fetch(proxyApi + encodeURIComponent(targetUrl));
-            let html = await response.text();
+            const response = await fetch(proxyUrl);
+            const data = await response.json();
             
-            // Rewrite URLs so links keep using the proxy
-            const doc = new DOMParser().parseFromString(html, 'text/html');
-            const base = new URL(targetUrl);
-
-            // Update all relative and absolute links
-            const rewriteAttr = (tag, attr) => {
-                doc.querySelectorAll(tag).forEach(el => {
-                    const original = el.getAttribute(attr);
-                    if (original && !original.startsWith('data:') && !original.startsWith('javascript:')) {
-                        try {
-                            const absolute = new URL(original, base).href;
-                            // Set custom attribute to store original, then point to our function
-                            el.setAttribute(attr, `javascript:parent.loadManual("${absolute}")`);
-                        } catch(e) {}
-                    }
-                });
-            };
-
-            rewriteAttr('a', 'href');
-            rewriteAttr('form', 'action');
-            
-            // For images and scripts, we just use CodeTabs directly
-            doc.querySelectorAll('img, script, link').forEach(el => {
-                const attr = el.tagName === 'LINK' ? 'href' : 'src';
-                const original = el.getAttribute(attr);
-                if (original) {
-                    try {
-                        const absolute = new URL(original, base).href;
-                        el.setAttribute(attr, proxyApi + encodeURIComponent(absolute));
-                    } catch(e) {}
-                }
-            });
-
-            // Inject the modified HTML into the iframe
-            const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
-            iframe.src = URL.createObjectURL(blob);
-
+            if (data.result && data.result.content) {
+                status.innerText = "Page Loaded. Rewriting...";
+                renderContent(data.result.content, targetUrl);
+            } else {
+                status.innerText = "Error: " + (data.reason || "Unknown");
+            }
         } catch (err) {
-            console.error("Proxy Error:", err);
-            alert("Could not load page. CodeTabs might be rate-limited.");
+            status.innerText = "Request Failed.";
+            console.error(err);
         }
     }
 
-    // Helper to allow links inside the iframe to trigger the parent loader
-    window.loadManual = function(url) {
-        input.value = url;
-        loadPage();
-    };
+    function renderContent(html, baseUrl) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const base = new URL(baseUrl);
 
-    // Allow "Enter" key to trigger search
-    input.addEventListener("keypress", (e) => { if (e.key === "Enter") loadPage(); });
+        // REWRITE LINKS: Instead of navigating the browser, 
+        // they update our input and re-run the proxy function.
+        doc.querySelectorAll('a, form').forEach(el => {
+            const attr = el.tagName === 'FORM' ? 'action' : 'href';
+            const original = el.getAttribute(attr);
+            if (original && !original.startsWith('#') && !original.startsWith('javascript:')) {
+                const absolute = new URL(original, base).href;
+                el.setAttribute(attr, `javascript:parent.loadFromProxy("${absolute}")`);
+            }
+        });
+
+        // REWRITE ASSETS: Point images/css directly to the proxy
+        doc.querySelectorAll('img, link, script').forEach(el => {
+            const attr = el.tagName === 'LINK' ? 'href' : 'src';
+            const original = el.getAttribute(attr);
+            if (original) {
+                const absolute = new URL(original, base).href;
+                // Using a simpler CORS proxy for assets to save Scrapfly credits
+                el.setAttribute(attr, `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(absolute)}`);
+            }
+        });
+
+        const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
+        viewer.src = URL.createObjectURL(blob);
+        status.innerText = "Online";
+    }
+
+    // Helper for internal links
+    window.loadFromProxy = function(url) {
+        document.getElementById('url-input').value = url;
+        requestPage();
+    };
 </script>
 
 </body>
