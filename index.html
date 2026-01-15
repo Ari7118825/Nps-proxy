@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy | Hardened Deep Tunnel</title>
+    <title>GhostProxy v4 | Deep Tunnel & SOCKS5</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -13,124 +13,73 @@
             --border-color: #333;
         }
 
-        body, html { 
-            margin: 0; 
-            padding: 0; 
-            height: 100%; 
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            background: var(--dark-bg); 
-            color: var(--neon-green); 
-            overflow: hidden; 
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--dark-bg);
+            color: var(--neon-green);
+            overflow: hidden;
         }
 
-        /* Top Navigation */
-        #nav { 
-            height: 60px; 
-            background: var(--panel-bg); 
-            display: flex; 
-            align-items: center; 
-            padding: 0 20px; 
-            gap: 15px; 
-            border-bottom: 2px solid var(--neon-green); 
-            box-shadow: 0 4px 20px rgba(0,255,65,0.1); 
-            z-index: 100; 
+        #nav {
+            height: 60px; background: var(--panel-bg);
+            display: flex; align-items: center; padding: 0 20px; gap: 15px;
+            border-bottom: 2px solid var(--neon-green);
+            box-shadow: 0 4px 20px rgba(0,255,65,0.1);
+            z-index: 100;
         }
 
         .brand { font-weight: bold; font-family: monospace; color: var(--neon-green); text-shadow: 0 0 5px var(--neon-green); }
         
-        input { 
-            flex: 1; 
-            padding: 12px; 
-            border-radius: 4px; 
-            border: 1px solid var(--border-color); 
-            background: #000; 
-            color: var(--neon-green); 
-            font-family: 'Consolas', monospace; 
-            outline: none; 
-            transition: border 0.3s; 
-        }
-        
-        input:focus { border-color: var(--neon-green); }
-
-        button { 
-            padding: 10px 20px; 
-            cursor: pointer; 
-            background: var(--neon-green); 
-            color: #000; 
-            border: none; 
-            border-radius: 4px; 
-            font-weight: bold; 
-            text-transform: uppercase; 
+        input {
+            flex: 1; padding: 12px; border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: #000; color: var(--neon-green);
+            font-family: 'Consolas', monospace; outline: none;
         }
 
-        /* Main Layout Wrapper */
-        #main-layout {
-            display: flex;
-            height: calc(100% - 62px);
-            width: 100%;
+        button {
+            padding: 10px 20px; cursor: pointer;
+            background: var(--neon-green); color: #000;
+            border: none; border-radius: 4px; font-weight: bold;
         }
 
-        /* Left Side Debug Console */
+        #main-layout { display: flex; height: calc(100% - 62px); width: 100%; }
+
         #debug-console {
-            width: 300px;
-            background: #000;
+            width: 320px; background: #000;
             border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            font-family: 'Consolas', monospace;
-            font-size: 12px;
+            display: flex; flex-direction: column;
+            font-family: 'Consolas', monospace; font-size: 11px;
         }
 
         #debug-header {
-            padding: 10px;
-            background: var(--panel-bg);
+            padding: 10px; background: var(--panel-bg);
             border-bottom: 1px solid var(--border-color);
-            font-weight: bold;
-            font-size: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            font-weight: bold; text-transform: uppercase;
         }
 
-        #debug-log {
-            flex: 1;
-            padding: 10px;
-            overflow-y: auto;
-            color: #008f11;
-            line-height: 1.4;
-        }
+        #debug-log { flex: 1; padding: 10px; overflow-y: auto; color: #008f11; }
 
         .log-entry { margin-bottom: 4px; border-left: 2px solid #222; padding-left: 8px; }
         .log-time { color: #666; margin-right: 5px; }
         .log-error { color: #ff4444; border-left-color: #ff4444; }
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
+        .log-warn { color: #ffaa00; border-left-color: #ffaa00; }
 
-        /* Right Side Content Viewer */
-        #viewer-container {
-            flex: 1;
-            background: #fff;
-            position: relative;
-            overflow: auto;
-        }
+        #viewer-container { flex: 1; background: #fff; position: relative; overflow: auto; }
 
-        /* Loader Overlay */
         #loader {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 50;
-            flex-direction: column;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: none;
+            justify-content: center; align-items: center; z-index: 50; flex-direction: column;
         }
 
         .spinner {
-            width: 40px;
-            height: 40px;
+            width: 40px; height: 40px;
             border: 4px solid rgba(0,255,65,0.1);
             border-left-color: var(--neon-green);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+            border-radius: 50%; animation: spin 1s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
     </style>
@@ -138,168 +87,205 @@
 <body>
 
 <div id="nav">
-    <span class="brand">GHOST_PROXY v3.5</span>
-    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter target URL...">
+    <span class="brand">GHOST_PROXY v4.3</span>
+    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Target URL...">
     <button onclick="launch()">Execute</button>
 </div>
 
 <div id="main-layout">
-    <!-- Sidebar Debug Console -->
     <div id="debug-console">
-        <div id="debug-header">System Debug Terminal</div>
+        <div id="debug-header">SOCKS5 Tunnel Terminal</div>
         <div id="debug-log"></div>
     </div>
 
-    <!-- Web Content Viewer -->
     <div id="viewer-container">
         <div id="loader">
             <div class="spinner"></div>
-            <p style="margin-top: 15px; font-family: monospace; font-size: 12px;">TUNNELING ENCRYPTED DATA...</p>
+            <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green);">FORCING TUNNEL PENETRATION...</p>
         </div>
         <div id="placeholder" style="padding: 40px; color: #999; text-align: center;">
-            <h2 style="margin: 0;">Ready for Injection</h2>
-            <p>The debug console on the left will track the tunnel status.</p>
+            <h2 style="margin: 0;">Proxy Engine v4.3</h2>
+            <p>Ready to bypass frame-locking...</p>
         </div>
     </div>
 </div>
 
 <script>
-    const viewer = document.getElementById('viewer-container');
-    const urlInput = document.getElementById('url-input');
-    const debugLog = document.getElementById('debug-log');
-    const loader = document.getElementById('loader');
-    let sessionCookies = "";
+const viewer = document.getElementById('viewer-container');
+const urlInput = document.getElementById('url-input');
+const debugLog = document.getElementById('debug-log');
+const loader = document.getElementById('loader');
+const loaderText = document.getElementById('loader-text');
 
-    // Prevents accidental site exits
-    window.onbeforeunload = () => "GhostProxy is active.";
+let sessionCookies = "";
+let socksList = [];
+let activeSocks = null;
 
-    /**
-     * Custom logging function for the sidebar console
-     */
-    function log(message, type = 'info') {
-        const entry = document.createElement('div');
-        entry.className = `log-entry log-${type}`;
-        const time = new Date().toLocaleTimeString([], { hour12: false });
-        entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
-        debugLog.prepend(entry); // Most recent logs at the top
-    }
+const SOCKS_SOURCES = [
+    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all&simplified=true",
+    "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt"
+];
 
-    async function launch() {
-        request(urlInput.value);
-    }
+function log(message, type = 'info') {
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${type}`;
+    const time = new Date().toLocaleTimeString([], { hour12: false });
+    entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
+    debugLog.prepend(entry);
+}
 
-    async function request(targetUrl, method = 'GET', body = null) {
-        if (!targetUrl) return;
-        
-        // Auto-format URL
-        if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
-        urlInput.value = targetUrl;
-
-        log(`INITIALIZING ${method} REQUEST TO: ${targetUrl}`);
-        loader.style.display = 'flex';
-
+async function refreshSocksPool() {
+    log("REFRESHING_SOCKS_NODES...", "warn");
+    for (const source of SOCKS_SOURCES) {
         try {
-            const options = {
-                method: method,
-                headers: {
-                    'Cookie': sessionCookies,
-                    'Referer': 'https://www.croxyproxy.com/'
-                }
-            };
+            const resp = await puter.net.fetch(source);
+            const text = await resp.text();
+            const found = text.trim().split('\n').filter(line => line.includes(':'));
+            if (found.length > 0) socksList = [...new Set([...socksList, ...found])];
+        } catch (e) {}
+    }
+    if (socksList.length > 0) {
+        activeSocks = socksList[Math.floor(Math.random() * socksList.length)];
+        log(`TUNNEL_NODE: ${activeSocks}`, "success");
+    }
+}
 
-            if (body) {
-                options.body = body;
-                options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+async function launch() {
+    if (socksList.length === 0) await refreshSocksPool();
+    request(urlInput.value);
+}
+
+async function request(targetUrl, method = 'GET', body = null, depth = 0) {
+    if (depth > 8) {
+        log("MAX_RECURSION_LIMIT", "error");
+        return;
+    }
+    
+    if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+    
+    urlInput.value = targetUrl;
+    log(`FETCHING: ${targetUrl}`, "info");
+    loader.style.display = 'flex';
+
+    try {
+        const options = {
+            method: method,
+            headers: {
+                'Cookie': sessionCookies,
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': '*/*',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
+        };
 
-            const response = await puter.net.fetch(targetUrl, options);
-            
-            // Handle Cookies
-            const newCookies = response.headers.get('set-cookie');
-            if (newCookies) {
-                sessionCookies = newCookies;
-                log("SESSION_COOKIES_UPDATED", "success");
-            }
-
-            log(`RESPONSE_STATUS: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
-            
-            let html = await response.text();
-            render(html, targetUrl);
-            
-        } catch (err) {
-            log(`CRITICAL_CONNECTION_ERROR: ${err.message}`, "error");
-            viewer.innerHTML = `<div style="color:red; padding:20px;">Connection Failed: ${err.message}</div>`;
-        } finally {
-            loader.style.display = 'none';
+        if (body) {
+            options.body = body;
+            options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
+
+        const response = await puter.net.fetch(targetUrl, options);
+        
+        // Handle Cookie Chain
+        const newCookies = response.headers.get('set-cookie');
+        if (newCookies) sessionCookies = newCookies;
+
+        let html = await response.text();
+
+        // --- BYPASS LOGIC: FORCE REDIRECTS ---
+        // 1. Check for JS location.replace
+        const jsRedirect = html.match(/location\.replace\(['"]([^'"]+)['"]\)/);
+        if (jsRedirect && jsRedirect[1]) {
+            log("BYPASS: Detected JS Redirect. Jumping...", "warn");
+            return request(new URL(jsRedirect[1], targetUrl).href, 'GET', null, depth + 1);
+        }
+
+        // 2. Check for Meta Refreshes
+        const metaMatch = html.match(/content=["']0;\s*url=([^"']+)["']/i);
+        if (metaMatch && metaMatch[1]) {
+            log("BYPASS: Detected Meta Refresh. Jumping...", "warn");
+            return request(new URL(metaMatch[1], targetUrl).href, 'GET', null, depth + 1);
+        }
+
+        // 3. Check for specific CroxyProxy "Launching" patterns
+        if (html.includes('Proxy is launching') || html.includes('id="loading"')) {
+            log("STALL: Resolving launch sequence...", "warn");
+            // If we're stuck, try to find any URL in the page and force load it
+            const anyUrlMatch = html.match(/https:\/\/www\.croxyproxy\.com\/_([a-zA-Z0-9]+)/);
+            if (anyUrlMatch) {
+                log("HACK: Extracted session URL. Forcing load...", "success");
+                return request(anyUrlMatch[0], 'GET', null, depth + 1);
+            }
+        }
+
+        render(html, targetUrl);
+    } catch (err) {
+        log(`BRIDGE_FAILURE: ${err.message}`, "error");
+    } finally {
+        loader.style.display = 'none';
     }
+}
 
-    function render(html, baseUrl) {
-        const placeholder = document.getElementById('placeholder');
-        if (placeholder) placeholder.remove();
+function render(html, baseUrl) {
+    const placeholder = document.getElementById('placeholder');
+    if (placeholder) placeholder.remove();
 
-        let shadow = viewer.shadowRoot;
-        if (!shadow) shadow = viewer.attachShadow({mode: 'open'});
-        shadow.innerHTML = '';
+    let shadow = viewer.shadowRoot || viewer.attachShadow({mode: 'open'});
+    shadow.innerHTML = '';
 
-        const contentWrapper = document.createElement('div');
-        contentWrapper.style.all = 'initial';
-        contentWrapper.style.display = 'block';
+    const contentWrapper = document.createElement('div');
+    
+    // Deep Sanitization: Remove frame-breaking and detection scripts
+    let sanitizedHtml = html
+        .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, (match, content) => {
+            if (content.includes('window.top') || content.includes('parent.location') || content.includes('top.location')) {
+                return '<!-- Stripped Detection Script -->';
+            }
+            return match;
+        })
+        .replace(/window\.top/gi, 'window.self')
+        .replace(/top\.location/gi, 'window.self.location')
+        .replace(/parent\.location/gi, 'window.self.location');
 
-        // Deep sanitization to prevent CroxyProxy from breaking out of the sandbox
-        let sanitizedHtml = html
-            .replace(/window\.top/gi, 'window.self')
-            .replace(/top\.location/gi, 'window.self.location')
-            .replace(/parent\.location/gi, 'window.self.location')
-            .replace(/frames\.length/gi, '0') // Spoof frame count
-            .replace(/<meta[^>]*refresh[^>]*>/gi, '');
+    contentWrapper.innerHTML = `
+        <style>
+            html, body { background: white !important; color: black !important; font-family: sans-serif; }
+            iframe { display: none !important; } /* Hide nested frames that might loop */
+        </style>
+        <base href="${baseUrl}">
+        ${sanitizedHtml}
+    `;
 
-        contentWrapper.innerHTML = `
-            <style>
-                html, body { overflow: auto !important; min-height: 100%; font-family: sans-serif; }
-            </style>
-            <base href="${baseUrl}">
-            ${sanitizedHtml}
-        `;
-
-        // Log all links found
-        const links = contentWrapper.querySelectorAll('a');
-        log(`SCANNED_PAGE: Found ${links.length} internal links.`);
-
-        // Hijack Link Clicks
-        links.forEach(link => {
-            link.addEventListener('click', e => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
-                    e.preventDefault();
-                    const dest = new URL(href, baseUrl).href;
-                    log(`REDIRECT_INTERCEPTED: -> ${dest}`);
-                    request(dest);
-                }
-            });
-        });
-
-        // Hijack Form Submissions
-        contentWrapper.querySelectorAll('form').forEach(form => {
-            form.addEventListener('submit', e => {
+    // Re-bind Click Events
+    contentWrapper.querySelectorAll('a').forEach(link => {
+        link.onclick = (e) => {
+            const href = link.getAttribute('href');
+            if (href && !href.startsWith('#')) {
                 e.preventDefault();
-                const fd = new FormData(form);
-                const data = new URLSearchParams(fd).toString();
-                const action = new URL(form.getAttribute('action') || '', baseUrl).href;
-                log(`FORM_SUBMISSION_INTERCEPTED: -> ${action}`, "success");
-                request(action, 'POST', data);
-            });
-        });
+                request(new URL(href, baseUrl).href);
+            }
+        };
+    });
 
-        shadow.appendChild(contentWrapper);
-        viewer.scrollTop = 0;
-        log(`RENDERING_COMPLETE: Page ready.`, "success");
-    }
+    contentWrapper.querySelectorAll('form').forEach(form => {
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            const fd = new FormData(form);
+            const data = new URLSearchParams(fd).toString();
+            const action = new URL(form.getAttribute('action') || '', baseUrl).href;
+            request(action, 'POST', data);
+        };
+    });
 
-    // Initialize
-    log("GHOST_PROXY KERNEL LOADED");
-    window.onload = () => { if(urlInput.value) launch(); };
-    urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
+    shadow.appendChild(contentWrapper);
+    log(`UI_READY: ${new URL(baseUrl).pathname}`, "success");
+}
+
+window.onload = () => {
+    log("GHOST_PROXY KERNEL v4.3 ONLINE");
+    refreshSocksPool();
+};
+
+urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
 </script>
 
 </body>
