@@ -1,216 +1,288 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy | Hardened Deep Tunnel</title>
-    <script src="https://js.puter.com/v2/"></script>
-    <style>
-        :root {
-            --neon-green: #00ff41;
-            --dark-bg: #050505;
-            --nav-bg: #111;
-        }
-        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Consolas', 'Monaco', monospace; background: var(--dark-bg); color: var(--neon-green); overflow: hidden; }
-        
-        #nav { 
-            height: 60px; 
-            background: var(--nav-bg); 
-            display: flex; 
-            align-items: center; 
-            padding: 0 20px; 
-            gap: 15px; 
-            border-bottom: 2px solid var(--neon-green); 
-            box-shadow: 0 4px 20px rgba(0,255,65,0.2); 
-            z-index: 1000; 
-            position: relative; 
-        }
 
-        .brand { font-weight: bold; font-size: 1.2rem; color: var(--neon-green); text-shadow: 0 0 8px var(--neon-green); letter-spacing: 2px; }
-        
-        #url-input { 
-            flex: 1; 
-            padding: 12px; 
-            border-radius: 4px; 
-            border: 1px solid #333; 
-            background: #000; 
-            color: var(--neon-green); 
-            outline: none; 
-            transition: all 0.3s ease;
-        }
-        
-        #url-input:focus { border-color: var(--neon-green); box-shadow: 0 0 10px rgba(0,255,65,0.3); }
-        
-        .btn-execute { 
-            padding: 10px 25px; 
-            cursor: pointer; 
-            background: var(--neon-green); 
-            color: #000; 
-            border: none; 
-            border-radius: 4px; 
-            font-weight: 900; 
-            text-transform: uppercase; 
-        }
-        
-        #viewer-container { 
-            width: 100%; 
-            height: calc(100% - 102px); /* Space for nav and debug footer */
-            background: #fff; 
-            position: relative; 
-            /* FIX: Changed from hidden to auto to allow scrolling */
-            overflow: auto; 
-            -webkit-overflow-scrolling: touch; /* Smooth scrolling for touch devices */
-        }
+<meta charset="UTF-8">
 
-        #debug-log {
-            height: 40px;
-            background: #000;
-            border-top: 1px solid #222;
-            font-size: 11px;
-            padding: 5px 20px;
-            overflow-y: auto;
-            color: #008f11;
-            white-space: nowrap;
-        }
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-        #loader {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 500;
-            flex-direction: column;
-        }
-        .spinner {
-            width: 30px;
-            height: 30px;
-            border: 3px solid rgba(0,255,65,0.1);
-            border-left-color: var(--neon-green);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
+<title>GhostProxy | Hardened Deep Tunnel</title>
+
+<script src="https://js.puter.com/v2/"></script>
+
+<style>
+
+body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; background: #050505; color: #00ff41; overflow: hidden; }
+
+#nav { height: 60px; background: #111; display: flex; align-items: center; padding: 0 20px; gap: 15px; border-bottom: 2px solid #00ff41; box-shadow: 0 4px 20px rgba(0,255,65,0.1); z-index: 100; position: relative; }
+
+.brand { font-weight: bold; font-family: monospace; color: #00ff41; text-shadow: 0 0 5px #00ff41; }
+
+input { flex: 1; padding: 12px; border-radius: 4px; border: 1px solid #333; background: #000; color: #00ff41; font-family: 'Consolas', monospace; outline: none; transition: border 0.3s; }
+
+input:focus { border-color: #00ff41; }
+
+button { padding: 10px 20px; cursor: pointer; background: #00ff41; color: #000; border: none; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
+
+button:hover { background: #00cc33; }
+
+#status { font-size: 11px; color: #008f11; font-family: monospace; min-width: 140px; text-align: right; }
+
+
+#viewer-container {
+
+width: 100%;
+
+height: calc(100% - 62px);
+
+background: #fff;
+
+position: relative;
+
+overflow: auto;
+
+color: initial;
+
+}
+
+</style>
+
 </head>
+
 <body>
 
+
+
 <div id="nav">
-    <span class="brand">GHOST_PROXY v3.4</span>
-    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter target URL...">
-    <button class="btn-execute" onclick="launch()">Execute</button>
+
+<span class="brand">GHOST_PROXY v3.1</span>
+
+<input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter target URL...">
+
+<button onclick="launch()">Execute</button>
+
+<div id="status">INIT_READY</div>
+
 </div>
+
+
 
 <div id="viewer-container">
-    <div id="loader">
-        <div class="spinner"></div>
-        <p style="margin-top: 10px; font-size: 12px;">BYPASSING FILTERS...</p>
-    </div>
+
+<div id="placeholder" style="padding: 20px; color: #666;">Enter a URL and press Execute to start the tunnel.</div>
+
 </div>
 
-<div id="debug-log">
-    [SYSTEM] Booting sequence initialized...
-</div>
+
 
 <script>
-    const viewer = document.getElementById('viewer-container');
-    const urlInput = document.getElementById('url-input');
-    const logBox = document.getElementById('debug-log');
-    const loader = document.getElementById('loader');
-    
-    function log(msg) {
-        const time = new Date().toLocaleTimeString().split(' ')[0];
-        logBox.innerHTML = `[${time}] ${msg}<br>` + logBox.innerHTML;
-    }
 
-    async function launch() {
-        const target = urlInput.value.trim();
-        if (!target) return;
-        
-        let formattedUrl = target;
-        if (!target.startsWith('http')) formattedUrl = 'https://' + target;
-        
-        log(`INITIATING TUNNEL TO: ${formattedUrl}`);
-        request(formattedUrl);
-    }
+const viewer = document.getElementById('viewer-container');
 
-    async function request(targetUrl, method = 'GET', body = null) {
-        showLoader(true);
-        try {
-            const options = { method: method, followRedirects: true };
-            if (body) {
-                options.body = body;
-                options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-            }
+const urlInput = document.getElementById('url-input');
 
-            const response = await puter.net.fetch(targetUrl, options);
-            log(`RESPONSE_CODE: ${response.status} (${response.statusText})`);
-            
-            let html = await response.text();
-            render(html, targetUrl);
-            log(`PACKET_LOAD_COMPLETE: ${html.length} bytes`);
-        } catch (err) {
-            log(`CRITICAL_ERROR: ${err.message}`);
-            viewer.innerHTML = `<div style="color:red; padding:20px;">Tunnel Failed: ${err.message}</div>`;
-        } finally {
-            showLoader(false);
-        }
-    }
+const statusBox = document.getElementById('status');
 
-    function render(html, baseUrl) {
-        let shadow = viewer.shadowRoot;
-        if (!shadow) shadow = viewer.attachShadow({mode: 'open'});
-        shadow.innerHTML = '';
+let sessionCookies = "";
 
-        const contentWrapper = document.createElement('div');
-        // Ensure content wrapper takes up full width but allows height to grow
-        contentWrapper.style.display = 'block';
-        contentWrapper.style.width = '100%';
-        contentWrapper.style.minHeight = '100%';
-        
-        // Deep script-rewriting to prevent CroxyProxy from "hanging"
-        let sanitizedHtml = html
-            .replace(/window\.top/gi, 'window.self')
-            .replace(/top\.location/gi, 'window.self.location')
-            .replace(/parent\.location/gi, 'window.self.location')
-            .replace(/frames\.length/gi, '0') // Fake no frames
-            .replace(/document\.referrer/gi, `"${baseUrl}"`);
 
-        // Added a style block to the content to ensure the proxied page behaves correctly
-        contentWrapper.innerHTML = `
-            <style>
-                html, body { overflow: auto !important; height: auto !important; min-height: 100%; }
-            </style>
-            <base href="${baseUrl}">
-            ${sanitizedHtml}
-        `;
 
-        // Intercept navigation
-        contentWrapper.addEventListener('click', e => {
-            const link = e.target.closest('a');
-            if (link) {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
-                    e.preventDefault();
-                    const dest = new URL(href, baseUrl).href;
-                    urlInput.value = dest;
-                    request(dest);
-                }
-            }
-        }, true);
+window.onbeforeunload = function() {
 
-        shadow.appendChild(contentWrapper);
-        // Scroll back to top on new page load
-        viewer.scrollTop = 0;
-    }
+return "GhostProxy prevented an external redirect.";
 
-    function showLoader(show) { loader.style.display = show ? 'flex' : 'none'; }
-    urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
+};
 
-    // AUTO-LOAD on start
-    window.onload = () => { launch(); };
+
+
+async function launch() {
+
+request(urlInput.value);
+
+}
+
+
+
+async function request(targetUrl, method = 'GET', body = null) {
+
+statusBox.innerText = "ESTABLISHING_TUNNEL...";
+
+
+try {
+
+const options = {
+
+method: method,
+
+headers: {
+
+'Cookie': sessionCookies,
+
+'Referer': 'https://www.croxyproxy.com/'
+
+}
+
+};
+
+if (body) {
+
+options.body = body;
+
+options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+
+}
+
+
+
+const response = await puter.net.fetch(targetUrl, options);
+
+
+const newCookies = response.headers.get('set-cookie');
+
+if (newCookies) sessionCookies = newCookies;
+
+
+
+let html = await response.text();
+
+
+render(html, targetUrl);
+
+statusBox.innerText = "TUNNEL_STABLE";
+
+} catch (err) {
+
+statusBox.innerText = "CONNECTION_LOST";
+
+console.error("Tunnel Error:", err);
+
+viewer.innerHTML = `<div style="color:red; padding:20px;">Error: ${err.message}</div>`;
+
+}
+
+}
+
+
+
+function render(html, baseUrl) {
+
+// Clear initial placeholder if it exists
+
+const placeholder = document.getElementById('placeholder');
+
+if (placeholder) placeholder.remove();
+
+
+
+// Check if shadow root already exists to avoid the NotSupportedError
+
+let shadow = viewer.shadowRoot;
+
+if (!shadow) {
+
+shadow = viewer.attachShadow({mode: 'open'});
+
+}
+
+
+
+// Clear the existing content inside the shadow root
+
+shadow.innerHTML = '';
+
+
+
+const contentWrapper = document.createElement('div');
+
+
+// Strip out common redirect triggers
+
+let sanitizedHtml = html
+
+.replace(/window\.top/gi, 'window.self')
+
+.replace(/top\.location/gi, 'window.self.location')
+
+.replace(/parent\.location/gi, 'window.self.location')
+
+.replace(/<meta[^>]*refresh[^>]*>/gi, '');
+
+
+
+contentWrapper.innerHTML = `
+
+<base href="${baseUrl}">
+
+${sanitizedHtml}
+
+`;
+
+
+
+// Hijack links
+
+contentWrapper.querySelectorAll('a').forEach(link => {
+
+link.addEventListener('click', e => {
+
+const href = link.getAttribute('href');
+
+if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
+
+e.preventDefault();
+
+const destination = new URL(href, baseUrl).href;
+
+urlInput.value = destination;
+
+request(destination);
+
+}
+
+});
+
+});
+
+
+
+// Hijack forms
+
+contentWrapper.querySelectorAll('form').forEach(form => {
+
+form.addEventListener('submit', e => {
+
+e.preventDefault();
+
+const fd = new FormData(form);
+
+const data = new URLSearchParams(fd).toString();
+
+const action = new URL(form.getAttribute('action') || '', baseUrl).href;
+
+urlInput.value = action;
+
+request(action, 'POST', data);
+
+});
+
+});
+
+
+
+shadow.appendChild(contentWrapper);
+
+}
+
+
+
+window.onload = () => { if(urlInput.value) launch(); };
+
 </script>
 
+
+
 </body>
+
 </html>
