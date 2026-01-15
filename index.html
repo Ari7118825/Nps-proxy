@@ -2,117 +2,130 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Advanced Session Proxy</title>
+    <title>Intercept Proxy</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #fff; }
-        #nav { height: 60px; background: #1a1a1a; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #007bff; }
-        input { flex: 1; margin: 0 15px; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #252525; color: white; }
-        button { padding: 10px 25px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; }
-        #status { font-size: 12px; color: #00ff00; margin-left: 15px; font-family: monospace; }
-        iframe { width: 100%; height: calc(100% - 62px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #111; color: #fff; overflow: hidden; }
+        #nav { height: 50px; background: #222; display: flex; align-items: center; padding: 0 15px; gap: 10px; border-bottom: 2px solid #444; }
+        input { flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #000; color: #0f0; font-family: monospace; }
+        button { padding: 8px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        #status { font-size: 11px; color: #888; white-space: nowrap; }
+        iframe { width: 100%; height: calc(100% - 52px); border: none; background: white; }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <strong>SessionProxy v2</strong>
+    <strong>GhostProxy:</strong>
     <input type="text" id="url-input" value="https://www.croxyproxy.com">
     <button onclick="launch()">Launch</button>
     <div id="status">IDLE</div>
 </div>
 
-<iframe id="viewer" name="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
 <script>
     const viewer = document.getElementById('viewer');
-    const statusBox = document.getElementById('status');
     const urlInput = document.getElementById('url-input');
+    const statusBox = document.getElementById('status');
 
-    // Global session storage to mimic a real browser profile
-    let sessionHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5'
-    };
+    let sessionCookies = "";
 
     async function launch() {
-        loadUrl(urlInput.value);
+        request(urlInput.value);
     }
 
-    async function loadUrl(targetUrl, isPost = false, postData = null) {
-        statusBox.innerText = isPost ? "POSTING DATA..." : "GETTING PAGE...";
+    async function request(targetUrl, method = 'GET', body = null) {
+        statusBox.innerText = `FETCHING: ${targetUrl.substring(0, 30)}...`;
         
         try {
-            // Update the Referer to trick CroxyProxy into thinking we are on their site
-            if (targetUrl.includes('/servers')) {
-                sessionHeaders['Referer'] = 'https://www.croxyproxy.com/';
-            }
-
             const options = {
-                method: isPost ? 'POST' : 'GET',
-                headers: sessionHeaders
+                method: method,
+                headers: {
+                    'Cookie': sessionCookies,
+                    'Referer': 'https://www.croxyproxy.com/'
+                }
             };
-
-            if (isPost && postData) {
-                options.body = postData;
+            if (body) {
+                options.body = body;
                 options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
             }
 
             const response = await puter.net.fetch(targetUrl, options);
             
-            // Capture Cookies for the next hop
+            // Sync Cookies
             const newCookies = response.headers.get('set-cookie');
-            if (newCookies) {
-                sessionHeaders['Cookie'] = newCookies;
-            }
+            if (newCookies) sessionCookies = newCookies;
 
             const html = await response.text();
             render(html, targetUrl);
-            statusBox.innerText = "CONNECTED";
-
+            statusBox.innerText = "ACTIVE SESSION";
         } catch (err) {
-            statusBox.innerText = "ERROR: " + err.message;
+            statusBox.innerText = "FAILED";
             console.error(err);
         }
     }
 
     function render(html, baseUrl) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
         const base = new URL(baseUrl);
+        
+        // This script will be injected into the TOP of the iframe HTML
+        // It hijacks the JS environment to prevent direct escapes
+        const injection = `
+            <script>
+                (function() {
+                    const originalLocation = window.location.href;
+                    
+                    // Hijack Links
+                    document.addEventListener('click', e => {
+                        const anchor = e.target.closest('a');
+                        if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+                            e.preventDefault();
+                            parent.postMessage({type: 'nav', url: anchor.href}, '*');
+                        }
+                    }, true);
 
-        // Intercept Forms (This is where "Go" usually fails)
-        doc.querySelectorAll('form').forEach(form => {
-            form.onsubmit = (e) => {
-                e.preventDefault();
-                const formData = new FormData(form);
-                const params = new URLSearchParams(formData);
-                const action = new URL(form.getAttribute('action') || '', base).href;
-                loadUrl(action, true, params.toString());
-            };
-        });
+                    // Hijack Forms
+                    document.addEventListener('submit', e => {
+                        e.preventDefault();
+                        const form = e.target;
+                        const formData = new FormData(form);
+                        const params = new URLSearchParams(formData).toString();
+                        const action = new URL(form.action || '', "${baseUrl}").href;
+                        parent.postMessage({type: 'form', url: action, data: params}, '*');
+                    }, true);
 
-        // Intercept Links
-        doc.querySelectorAll('a').forEach(link => {
-            const href = link.getAttribute('href');
-            if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-                const absolute = new URL(href, base).href;
-                link.href = "javascript:void(0)";
-                link.onclick = () => {
-                    urlInput.value = absolute;
-                    loadUrl(absolute);
-                };
-            }
-        });
+                    // Block window.location changes
+                    Object.defineProperty(window, 'location', {
+                        set: function(val) {
+                            parent.postMessage({type: 'nav', url: new URL(val, "${baseUrl}").href}, '*');
+                        }
+                    });
+                })();
+            <\/script>
+            <base href="${baseUrl}">
+        `;
 
-        // Add base tag for assets
-        const baseTag = doc.createElement('base');
-        baseTag.href = baseUrl;
-        doc.head.insertBefore(baseTag, doc.head.firstChild);
-
-        const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
+        const finalHtml = injection + html;
+        const blob = new Blob([finalHtml], { type: 'text/html' });
         viewer.src = URL.createObjectURL(blob);
+    }
+
+    // Listen for messages from the injected script inside the iframe
+    window.addEventListener('message', e => {
+        if (e.data.type === 'nav') {
+            urlInput.value = e.data.url;
+            request(e.data.url);
+        } else if (e.data.type === 'form') {
+            urlInput.value = e.data.url;
+            request(e.data.url, 'POST', e.data.data);
+        }
+    });
+
+    // Handle "Manual" navigation for rewriting
+    window.loadManual = (url) => {
+        urlInput.value = url;
+        request(url);
     }
 </script>
 
