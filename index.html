@@ -2,77 +2,77 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Session-Persistent Proxy</title>
+    <title>Advanced Session Proxy</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #121212; color: #fff; }
-        #nav { height: 60px; background: #1e1e1e; display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid #333; }
-        input { flex: 1; margin: 0 15px; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #2b2b2b; color: white; }
-        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
-        #status { font-size: 11px; color: #888; width: 150px; overflow: hidden; }
-        iframe { width: 100%; height: calc(100% - 61px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: #fff; }
+        #nav { height: 60px; background: #1a1a1a; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #007bff; }
+        input { flex: 1; margin: 0 15px; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #252525; color: white; }
+        button { padding: 10px 25px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; }
+        #status { font-size: 12px; color: #00ff00; margin-left: 15px; font-family: monospace; }
+        iframe { width: 100%; height: calc(100% - 62px); border: none; background: white; }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <strong>SessionProxy</strong>
+    <strong>SessionProxy v2</strong>
     <input type="text" id="url-input" value="https://www.croxyproxy.com">
     <button onclick="launch()">Launch</button>
-    <div id="status">Ready</div>
+    <div id="status">IDLE</div>
 </div>
 
-<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+<iframe id="viewer" name="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
 <script>
     const viewer = document.getElementById('viewer');
     const statusBox = document.getElementById('status');
     const urlInput = document.getElementById('url-input');
 
-    // Simple Cookie Jar using LocalStorage
-    const CookieJar = {
-        set: (url, cookieStr) => {
-            const domain = new URL(url).hostname;
-            localStorage.setItem(`cookie_${domain}`, cookieStr);
-        },
-        get: (url) => {
-            const domain = new URL(url).hostname;
-            return localStorage.getItem(`cookie_${domain}`) || "";
-        }
+    // Global session storage to mimic a real browser profile
+    let sessionHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
     };
 
     async function launch() {
         loadUrl(urlInput.value);
     }
 
-    async function loadUrl(targetUrl) {
-        statusBox.innerText = "Fetching with Session...";
+    async function loadUrl(targetUrl, isPost = false, postData = null) {
+        statusBox.innerText = isPost ? "POSTING DATA..." : "GETTING PAGE...";
         
         try {
-            // 1. Get saved cookies for this domain
-            const savedCookies = CookieJar.get(targetUrl);
+            // Update the Referer to trick CroxyProxy into thinking we are on their site
+            if (targetUrl.includes('/servers')) {
+                sessionHeaders['Referer'] = 'https://www.croxyproxy.com/';
+            }
 
-            // 2. Fetch using Puter.js (allows custom headers)
-            const response = await puter.net.fetch(targetUrl, {
-                method: 'GET',
-                headers: {
-                    'Cookie': savedCookies,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
-                }
-            });
+            const options = {
+                method: isPost ? 'POST' : 'GET',
+                headers: sessionHeaders
+            };
 
-            // 3. Extract new cookies from response headers
-            const setCookie = response.headers.get('set-cookie');
-            if (setCookie) {
-                CookieJar.set(targetUrl, setCookie);
+            if (isPost && postData) {
+                options.body = postData;
+                options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+            }
+
+            const response = await puter.net.fetch(targetUrl, options);
+            
+            // Capture Cookies for the next hop
+            const newCookies = response.headers.get('set-cookie');
+            if (newCookies) {
+                sessionHeaders['Cookie'] = newCookies;
             }
 
             const html = await response.text();
-            statusBox.innerText = "Injecting Session...";
             render(html, targetUrl);
+            statusBox.innerText = "CONNECTED";
 
         } catch (err) {
-            statusBox.innerText = "Error: " + err.message;
+            statusBox.innerText = "ERROR: " + err.message;
             console.error(err);
         }
     }
@@ -82,32 +82,38 @@
         const doc = parser.parseFromString(html, 'text/html');
         const base = new URL(baseUrl);
 
-        // Standard Rewriting Logic
-        doc.querySelectorAll('a, form').forEach(el => {
-            const attr = el.tagName === 'FORM' ? 'action' : 'href';
-            const original = el.getAttribute(attr);
-            if (original && !original.startsWith('#') && !original.startsWith('javascript:')) {
-                try {
-                    const absolute = new URL(original, base).href;
-                    el.setAttribute(attr, `javascript:parent.loadManual("${absolute}")`);
-                } catch(e) {}
+        // Intercept Forms (This is where "Go" usually fails)
+        doc.querySelectorAll('form').forEach(form => {
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                const formData = new FormData(form);
+                const params = new URLSearchParams(formData);
+                const action = new URL(form.getAttribute('action') || '', base).href;
+                loadUrl(action, true, params.toString());
+            };
+        });
+
+        // Intercept Links
+        doc.querySelectorAll('a').forEach(link => {
+            const href = link.getAttribute('href');
+            if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+                const absolute = new URL(href, base).href;
+                link.href = "javascript:void(0)";
+                link.onclick = () => {
+                    urlInput.value = absolute;
+                    loadUrl(absolute);
+                };
             }
         });
 
-        // Use a base tag to help with relative assets (CSS/Images)
+        // Add base tag for assets
         const baseTag = doc.createElement('base');
         baseTag.href = baseUrl;
         doc.head.insertBefore(baseTag, doc.head.firstChild);
 
         const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
         viewer.src = URL.createObjectURL(blob);
-        statusBox.innerText = "Connected";
     }
-
-    window.loadManual = function(url) {
-        urlInput.value = url;
-        loadUrl(url);
-    };
 </script>
 
 </body>
