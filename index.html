@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CroxyProxy Tunnel Gateway</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #121212; color: white; font-family: sans-serif; }
+        #status { position: fixed; top: 0; left: 0; width: 100%; padding: 10px; background: #1e1e1e; border-bottom: 2px solid #4CAF50; text-align: center; z-index: 9999; }
+        #viewer { width: 100%; height: calc(100% - 40px); margin-top: 40px; border: none; }
+        .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div id="status">
+    <span class="spinner"></span> <span id="msg">Initializing CodeTabs Tunnel...</span>
+</div>
+
+<div id="app-container" style="height: 100vh; width: 100vw;"></div>
+
+<script>
+    const codeTabs = "https://api.codetabs.com/v1/proxy?quest=";
+    const croxyDomain = "https://www.croxyproxy.com";
+    const statusMsg = document.getElementById('msg');
+
+    async function launchTunnel(targetUrl) {
+        statusMsg.innerText = "Fetching CroxyProxy via CodeTabs...";
+        
+        try {
+            // 1. Fetch the CroxyProxy page through CodeTabs
+            const response = await fetch(codeTabs + targetUrl);
+            let html = await response.text();
+
+            // 2. REWRITER LOGIC: 
+            // We must force every single link to go back through CodeTabs
+            // Replace absolute links
+            html = html.replace(/https:\/\/www\.croxyproxy\.com/g, window.location.href.split('?')[0] + "?tunnel=");
+            
+            // Replace relative links (href="/..." or src="/...")
+            const tunnelPrefix = window.location.href.split('?')[0] + "?tunnel=" + croxyDomain;
+            html = html.replace(/(href|src|action)=(['"])\/(?!\/)/g, `$1=$2${tunnelPrefix}/`);
+
+            // 3. Inject a 'Sniffer' script into the content
+            // This detects when CroxyProxy tries to redirect to an IP address
+            const sniffer = `
+                <script>
+                    (function() {
+                        const originalLocation = window.location.assign;
+                        // Monitor for the final IP jump
+                        const checkRedirect = (url) => {
+                            if (url && /\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/.test(url)) {
+                                console.log("IP Detected! Breaking tunnel...", url);
+                                window.top.location.href = url; // Break out of tunnel to the IP
+                            }
+                        };
+                        
+                        // Intercept form submissions
+                        document.addEventListener('submit', (e) => {
+                            const urlVal = e.target.querySelector('input[name="url"]')?.value;
+                            if (urlVal) {
+                                e.preventDefault();
+                                const encoded = btoa(urlVal);
+                                window.location.href = "${window.location.href.split('?')[0]}?tunnel=${croxyDomain}/_proxify.php?url=" + encoded;
+                            }
+                        });
+                    })();
+                <\/script>
+            `;
+
+            document.getElementById('app-container').innerHTML = html + sniffer;
+            statusMsg.innerText = "Tunnel Active. CroxyProxy is ready.";
+
+        } catch (err) {
+            statusMsg.innerText = "Tunnel Error: " + err.message;
+        }
+    }
+
+    // Logic to handle page navigation within the tunnel
+    const urlParams = new URLSearchParams(window.location.search);
+    const nestedUrl = urlParams.get('tunnel');
+
+    if (nestedUrl) {
+        // If we are navigating "inside" the tunnel
+        launchTunnel(nestedUrl);
+    } else {
+        // First load
+        launchTunnel(croxyDomain);
+    }
+</script>
+
+</body>
+</html>
