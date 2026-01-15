@@ -10,53 +10,39 @@
     <style>
         .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #viewer-frame { width: 100%; height: calc(100vh - 180px); border: none; background: white; border-radius: 0 0 8px 8px; }
+        #viewer-frame { width: 100%; height: calc(100vh - 120px); border: none; background: white; }
         .address-bar { transition: all 0.3s ease; }
-        .address-bar:focus-within { ring: 2px; ring-color: #3b82f6; }
     </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col items-center">
 
     <!-- Top Navigation Bar -->
     <div class="w-full bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-50 shadow-lg">
-        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center gap-4">
-            <div class="flex items-center gap-3 shrink-0">
-                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl">P</div>
-                <div class="hidden sm:block">
-                    <h1 class="text-sm font-bold text-white leading-none">Puter Tunnel</h1>
-                    <div id="sdkStatus" class="text-[10px] text-amber-400 uppercase tracking-tighter">SDK LOADING</div>
-                </div>
+        <div class="max-w-7xl mx-auto flex items-center gap-4">
+            <div class="flex items-center gap-2 shrink-0">
+                <div class="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-bold">P</div>
+                <div id="sdkStatus" class="text-[9px] text-amber-400 font-bold uppercase hidden sm:block">SDK LOADING</div>
             </div>
 
-            <div class="flex-1 w-full flex gap-2">
-                <div class="relative flex-1 group">
-                    <input type="text" id="targetUrl" placeholder="Enter URL (e.g., discord.com/login)" value="https://discord.com/login" 
-                        class="address-bar w-full p-2 pl-4 rounded-full bg-slate-900 border border-slate-700 focus:outline-none text-white font-mono text-sm">
-                </div>
+            <div class="flex-1 flex gap-2">
+                <input type="text" id="targetUrl" placeholder="Enter URL..." value="https://discord.com/login" 
+                    class="address-bar flex-1 p-2 px-4 rounded-full bg-slate-900 border border-slate-700 focus:outline-none text-white font-mono text-sm">
                 
-                <button onclick="launchTunnel()" id="btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-full transition-all flex items-center justify-center disabled:opacity-50">
+                <button onclick="launchTunnel()" id="btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-full transition-all flex items-center">
                     <span id="btnText">Go</span>
-                    <div id="btnLoader" class="hidden loader ease-linear rounded-full border-2 border-t-2 border-gray-200 h-3 w-3 ml-2"></div>
+                    <div id="btnLoader" class="hidden loader rounded-full border-2 border-t-2 border-gray-200 h-3 w-3 ml-2"></div>
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="w-full max-w-7xl p-4 flex-1 flex flex-col">
-        <div id="statusArea" class="mb-2 hidden">
-            <div id="statusMsg" class="text-[10px] text-slate-500 font-mono text-center truncate"></div>
+    <div class="w-full flex-1 flex flex-col">
+        <div id="statusArea" class="bg-blue-600/10 border-b border-blue-500/20 py-1 hidden">
+            <div id="statusMsg" class="text-[10px] text-blue-400 font-mono text-center"></div>
         </div>
 
-        <div id="viewerContainer" class="bg-white rounded-lg shadow-2xl flex-1 flex flex-col overflow-hidden hidden">
-            <div class="bg-slate-100 p-1.5 flex items-center border-b border-slate-200">
-                <div class="flex gap-1.5 px-2">
-                    <div class="w-2.5 h-2.5 rounded-full bg-red-400"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-amber-400"></div>
-                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
-                </div>
-                <div id="browserAddress" class="text-[10px] text-slate-400 font-mono ml-4 truncate">Initializing session...</div>
-            </div>
-            <div id="render-wrapper" class="flex-1">
+        <div id="viewerContainer" class="flex-1 bg-white hidden">
+            <div id="render-wrapper" class="h-full">
                 <!-- Iframe injected here -->
             </div>
         </div>
@@ -67,26 +53,42 @@
         const urlInput = document.getElementById('targetUrl');
         const statusArea = document.getElementById('statusArea');
         const statusMsg = document.getElementById('statusMsg');
-        const browserAddress = document.getElementById('browserAddress');
         const viewerContainer = document.getElementById('viewerContainer');
 
         function updateSdkStatusDisplay() {
             const statusEl = document.getElementById('sdkStatus');
-            if (typeof puter !== 'undefined' && puter.net) {
-                statusEl.innerText = "TUNNEL READY";
+            if (window.puter && puter.net) {
+                statusEl.innerText = "TUNNEL ACTIVE";
                 statusEl.classList.replace('text-amber-400', 'text-emerald-400');
                 return true;
             }
             return false;
         }
 
-        const statusCheckInterval = setInterval(() => {
-            if (updateSdkStatusDisplay()) clearInterval(statusCheckInterval);
-        }, 500);
+        setInterval(updateSdkStatusDisplay, 1000);
 
-        window.addEventListener('message', (event) => {
-            if (event.data.type === 'TUNNEL_NAV') {
-                launchTunnel(event.data.url);
+        // Listen for requests from the proxied iframe
+        window.addEventListener('message', async (event) => {
+            const { type, url, requestId } = event.data;
+            if (type === 'TUNNEL_NAV') {
+                launchTunnel(url);
+            } else if (type === 'PROXY_REQUEST') {
+                try {
+                    // Fetch sub-resource through Puter
+                    const resp = await puter.net.fetch(url);
+                    const blob = await resp.blob();
+                    const dataUrl = URL.createObjectURL(blob);
+                    
+                    // Send data back to iframe
+                    event.source.postMessage({
+                        type: 'PROXY_RESPONSE',
+                        requestId,
+                        dataUrl,
+                        contentType: resp.headers.get('content-type')
+                    }, '*');
+                } catch (e) {
+                    console.error("Sub-resource fetch failed:", url, e);
+                }
             }
         });
 
@@ -110,40 +112,20 @@
             if (!finalUrl.startsWith('http')) finalUrl = 'https://' + finalUrl;
             
             urlInput.value = finalUrl;
-            browserAddress.innerText = finalUrl;
 
             try {
-                if (typeof puter === 'undefined' || !puter.net) {
-                    throw new Error("Puter SDK not initialized.");
-                }
+                logStatus(`Establishing Puter Tunnel to ${new URL(finalUrl).hostname}...`);
 
-                logStatus(`Fetching ${finalUrl}...`);
-
-                const response = await puter.net.fetch(finalUrl, {
-                    method: 'GET',
-                    headers: { 'User-Agent': navigator.userAgent }
-                });
-
-                if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+                const response = await puter.net.fetch(finalUrl);
+                if (!response.ok) throw new Error(`Remote server returned ${response.status}`);
 
                 let html = await response.text();
-                
-                // Rewrite basic static attributes
-                const rewrite = (content, base) => {
-                    const u = new URL(base);
-                    const origin = u.origin;
-                    return content
-                        .replace(/(src|href|action)="\/(?!\/)/g, `$1="${origin}/`)
-                        .replace(/(src|href|action)="\.\//g, `$1="${base.substring(0, base.lastIndexOf('/') + 1)}`)
-                        .replace(/integrity="[^"]*"/g, ''); 
-                };
-
-                html = rewrite(html, finalUrl);
                 injectIntoIframe(html, finalUrl);
+                logStatus(`Tunnel Established.`);
 
             } catch (err) {
-                logStatus(`Error: ${err.message}`);
-                wrapper.innerHTML = `<div class="p-10 text-red-500 font-mono text-center">Failed to load: ${err.message}</div>`;
+                logStatus(`Tunnel Error: ${err.message}`);
+                wrapper.innerHTML = `<div class="p-20 text-red-600 text-center font-bold">` + err.message + `</div>`;
             } finally {
                 btn.disabled = false;
                 btnLoader.classList.add('hidden');
@@ -154,44 +136,42 @@
             wrapper.innerHTML = '';
             const iframe = document.createElement('iframe');
             iframe.id = 'viewer-frame';
-            // Sandbox with necessary permissions for modern web apps
-            iframe.sandbox = "allow-scripts allow-forms allow-same-origin allow-popups allow-storage-access-by-user-activation";
+            iframe.sandbox = "allow-scripts allow-forms allow-same-origin allow-popups";
             wrapper.appendChild(iframe);
 
-            // This script is injected into the proxied page's context
-            const proxyScript = 
+            // Interceptor script to bridge the iframe and Puter
+            // Using standard string concatenation to avoid nested template literal SyntaxErrors
+            const bridgeScript = 
                 '<script>' +
                 '(function() {' +
                 '    const baseUrl = "' + baseUrl + '";' +
-                '    const originalFetch = window.fetch;' +
-                '    const originalOpen = XMLHttpRequest.prototype.open;' +
+                '    const pendingRequests = new Map();' +
                 '' +
-                '    // 1. Intercept Fetch' +
+                '    const originalFetch = window.fetch;' +
                 '    window.fetch = async function(resource, init) {' +
-                '        const url = (resource instanceof Request) ? resource.url : resource;' +
-                '        const fullUrl = new URL(url, baseUrl).href;' +
-                '        console.log("[PuterTunnel] Fetch Intercepted:", fullUrl);' +
-                '        // In a perfect world, we would route this through puter.net.fetch here' +
-                '        // However, since we are inside a sandboxed iframe, we still rely on the base tag for now' +
-                '        return originalFetch(resource, init);' +
+                '        const url = new URL((resource instanceof Request ? resource.url : resource), baseUrl).href;' +
+                '        return new Promise((resolve) => {' +
+                '            const requestId = Math.random().toString(36).substr(2, 9);' +
+                '            pendingRequests.set(requestId, resolve);' +
+                '            window.parent.postMessage({ type: "PROXY_REQUEST", url, requestId }, "*");' +
+                '        }).then(async (data) => {' +
+                '            return originalFetch(data.dataUrl);' +
+                '        });' +
                 '    };' +
                 '' +
-                '    // 2. Intercept Navigation' +
+                '    window.addEventListener("message", async (event) => {' +
+                '        if (event.data.type === "PROXY_RESPONSE") {' +
+                '            const resolve = pendingRequests.get(event.data.requestId);' +
+                '            if (resolve) resolve(event.data);' +
+                '        }' +
+                '    });' +
+                '' +
                 '    document.addEventListener("click", e => {' +
                 '        const a = e.target.closest("a");' +
                 '        if (a && a.href && !a.href.startsWith("javascript:") && !a.getAttribute("href").startsWith("#")) {' +
                 '            e.preventDefault();' +
                 '            window.parent.postMessage({ type: "TUNNEL_NAV", url: a.href }, "*");' +
                 '        }' +
-                '    }, true);' +
-                '' +
-                '    // 3. Intercept Forms' +
-                '    document.addEventListener("submit", e => {' +
-                '        e.preventDefault();' +
-                '        const form = e.target;' +
-                '        const action = form.getAttribute("action") || "";' +
-                '        const url = new URL(action, baseUrl).href;' +
-                '        window.parent.postMessage({ type: "TUNNEL_NAV", url: url }, "*");' +
                 '    }, true);' +
                 '})();' +
                 '<\/script>';
@@ -201,7 +181,7 @@
                 '<head>' +
                 '    <meta charset="UTF-8">' +
                 '    <base href="' + baseUrl + '">' +
-                '    ' + proxyScript +
+                '    ' + bridgeScript +
                 '</head>' +
                 '<body>' + html + '</body>' +
                 '</html>';
@@ -210,9 +190,7 @@
             iframe.src = URL.createObjectURL(blob);
         }
 
-        urlInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') launchTunnel();
-        });
+        urlInput.addEventListener('keypress', (e) => e.key === 'Enter' && launchTunnel());
     </script>
 </body>
 </html>
