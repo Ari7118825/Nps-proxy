@@ -2,27 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Intercept Proxy</title>
+    <title>GhostProxy | Intercept</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #111; color: #fff; overflow: hidden; }
-        #nav { height: 50px; background: #222; display: flex; align-items: center; padding: 0 15px; gap: 10px; border-bottom: 2px solid #444; }
-        input { flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #000; color: #0f0; font-family: monospace; }
-        button { padding: 8px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; }
-        #status { font-size: 11px; color: #888; white-space: nowrap; }
-        iframe { width: 100%; height: calc(100% - 52px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; overflow: hidden; }
+        #nav { height: 55px; background: #1a1a1a; display: flex; align-items: center; padding: 0 15px; gap: 12px; border-bottom: 2px solid #007bff; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+        input { flex: 1; padding: 10px; border-radius: 4px; border: 1px solid #333; background: #000; color: #00ff00; font-family: 'Consolas', monospace; outline: none; }
+        input:focus { border-color: #007bff; }
+        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #0056b3; }
+        #status { font-size: 12px; color: #aaa; min-width: 120px; text-align: right; }
+        iframe { width: 100%; height: calc(100% - 57px); border: none; background: white; }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <strong>GhostProxy:</strong>
+    <span style="color:#007bff; font-weight:bold;">GHOST_PROXY:</span>
     <input type="text" id="url-input" value="https://www.croxyproxy.com">
     <button onclick="launch()">Launch</button>
-    <div id="status">IDLE</div>
+    <div id="status">STATUS: IDLE</div>
 </div>
 
-<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
+<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin allow-modals"></iframe>
 
 <script>
     const viewer = document.getElementById('viewer');
@@ -36,7 +38,7 @@
     }
 
     async function request(targetUrl, method = 'GET', body = null) {
-        statusBox.innerText = `FETCHING: ${targetUrl.substring(0, 30)}...`;
+        statusBox.innerText = `FETCHING...`;
         
         try {
             const options = {
@@ -53,35 +55,60 @@
 
             const response = await puter.net.fetch(targetUrl, options);
             
-            // Sync Cookies
+            // Handle Cookies
             const newCookies = response.headers.get('set-cookie');
             if (newCookies) sessionCookies = newCookies;
 
-            const html = await response.text();
+            let html = await response.text();
+            
+            // Pre-process HTML to disable common frame-breakers
+            html = html.replace(/window\.top/g, 'window.self');
+            html = html.replace(/top\.location/g, 'window.self.location');
+            
             render(html, targetUrl);
-            statusBox.innerText = "ACTIVE SESSION";
+            statusBox.innerText = "STATUS: ACTIVE";
         } catch (err) {
-            statusBox.innerText = "FAILED";
+            statusBox.innerText = "STATUS: ERROR";
             console.error(err);
         }
     }
 
     function render(html, baseUrl) {
-        const base = new URL(baseUrl);
-        
-        // This script will be injected into the TOP of the iframe HTML
-        // It hijacks the JS environment to prevent direct escapes
+        // Create the injection script
         const injection = `
             <script>
                 (function() {
-                    const originalLocation = window.location.href;
-                    
-                    // Hijack Links
+                    // Lock down the location to prevent redirects
+                    const preventRedirect = (url) => {
+                        console.log("Intercepted redirect to:", url);
+                        parent.postMessage({type: 'nav', url: new URL(url, "${baseUrl}").href}, '*');
+                        return true;
+                    };
+
+                    // Shadow the 'top' property
+                    window.top = window.self;
+
+                    // Intercept property setters on location
+                    const locHandler = {
+                        set: function(target, prop, value) {
+                            if (['href', 'replace', 'assign'].includes(prop)) {
+                                preventRedirect(value);
+                                return true;
+                            }
+                            target[prop] = value;
+                            return true;
+                        }
+                    };
+
+                    // Hijack Clicks
                     document.addEventListener('click', e => {
                         const anchor = e.target.closest('a');
                         if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+                            const url = new URL(anchor.href, "${baseUrl}").href;
+                            // Only allow local processing
                             e.preventDefault();
-                            parent.postMessage({type: 'nav', url: anchor.href}, '*');
+                            e.stopPropagation();
+                            parent.postMessage({type: 'nav', url: url}, '*');
                         }
                     }, true);
 
@@ -95,12 +122,10 @@
                         parent.postMessage({type: 'form', url: action, data: params}, '*');
                     }, true);
 
-                    // Block window.location changes
-                    Object.defineProperty(window, 'location', {
-                        set: function(val) {
-                            parent.postMessage({type: 'nav', url: new URL(val, "${baseUrl}").href}, '*');
-                        }
-                    });
+                    // Block Meta Refresh
+                    const meta = document.querySelectorAll('meta[http-equiv="refresh"]');
+                    meta.forEach(m => m.remove());
+
                 })();
             <\/script>
             <base href="${baseUrl}">
@@ -108,25 +133,23 @@
 
         const finalHtml = injection + html;
         const blob = new Blob([finalHtml], { type: 'text/html' });
+        
+        // Revoke old URL to save memory
+        if(viewer.src) URL.revokeObjectURL(viewer.src);
         viewer.src = URL.createObjectURL(blob);
     }
 
-    // Listen for messages from the injected script inside the iframe
+    // Listen for messages from the injected script
     window.addEventListener('message', e => {
         if (e.data.type === 'nav') {
-            urlInput.value = e.data.url;
-            request(e.data.url);
+            const cleanUrl = e.data.url;
+            urlInput.value = cleanUrl;
+            request(cleanUrl);
         } else if (e.data.type === 'form') {
             urlInput.value = e.data.url;
             request(e.data.url, 'POST', e.data.data);
         }
     });
-
-    // Handle "Manual" navigation for rewriting
-    window.loadManual = (url) => {
-        urlInput.value = url;
-        request(url);
-    }
 </script>
 
 </body>
