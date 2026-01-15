@@ -2,102 +2,114 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Smart Scraping Proxy</title>
+    <title>Universal Keyless Proxy</title>
+    <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #121212; color: white; }
-        #controls { height: 60px; background: #1e1e1e; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #333; }
-        #url-input { flex: 1; margin: 0 15px; padding: 10px; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 5px; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #0056b3; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #1a1a1a; color: #eee; }
+        #nav { height: 60px; background: #222; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #444; }
+        input { flex: 1; margin: 0 15px; padding: 10px; border-radius: 4px; border: 1px solid #555; background: #333; color: white; }
+        button { padding: 10px 20px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        #status { font-size: 12px; margin-left: 10px; color: #aaa; }
         iframe { width: 100%; height: calc(100% - 62px); border: none; background: white; }
-        .status { font-size: 12px; color: #888; margin-left: 10px; }
     </style>
 </head>
 <body>
 
-<div id="controls">
-    <strong>SmartProxy:</strong>
-    <input type="text" id="url-input" placeholder="Enter URL (e.g. croxyproxy.com)" value="https://www.croxyproxy.com">
-    <button onclick="requestPage()">Go</button>
-    <span class="status" id="status">Ready</span>
+<div id="nav">
+    <strong>Universal Proxy</strong>
+    <input type="text" id="url-input" placeholder="https://www.croxyproxy.com" value="https://www.croxyproxy.com">
+    <button onclick="startLoading()">Launch</button>
+    <div id="status">Idle</div>
 </div>
 
 <iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
 <script>
-    // --- CONFIGURATION ---
-    const API_KEY = "YOUR_SCRAPFLY_KEY_HERE"; // Get this from scrapfly.io
-    const SESSION_ID = "my-unique-proxy-session-" + Math.random().toString(36).substring(7);
-    
     const viewer = document.getElementById('viewer');
-    const status = document.getElementById('status');
+    const statusBox = document.getElementById('status');
+    const urlInput = document.getElementById('url-input');
 
-    async function requestPage() {
-        const targetUrl = document.getElementById('url-input').value;
-        status.innerText = "Connecting to Scrapfly...";
+    // List of free, no-key CORS proxies
+    const proxies = [
+        { name: "Puter Cloud", type: "puter" },
+        { name: "CodeTabs", url: "https://api.codetabs.com/v1/proxy?quest=" },
+        { name: "AllOrigins", url: "https://api.allorigins.win/raw?url=" },
+        { name: "Cors-Anywhere (Public)", url: "https://cors-anywhere.herokuapp.com/" },
+        { name: "ThingProxy", url: "https://thingproxy.freeboard.io/fetch/" }
+    ];
 
-        // Scrapfly Parameters:
-        // - render_js=true: Runs the scripts on CroxyProxy
-        // - session: Keeps cookies so redirects to /servers work
-        // - proxy_pool=public_proxy: Bypasses simple blocks
-        const proxyUrl = `https://api.scrapfly.io/scrape?key=${API_KEY}` +
-                         `&url=${encodeURIComponent(targetUrl)}` +
-                         `&render_js=true` +
-                         `&session=${SESSION_ID}` +
-                         `&asp=true`;
+    let currentProxyIndex = 0;
+
+    async function startLoading() {
+        currentProxyIndex = 0;
+        loadUrl(urlInput.value);
+    }
+
+    async function loadUrl(targetUrl) {
+        if (currentProxyIndex >= proxies.length) {
+            statusBox.innerHTML = "<span style='color:red'>All proxies failed.</span>";
+            return;
+        }
+
+        const proxy = proxies[currentProxyIndex];
+        statusBox.innerText = `Trying ${proxy.name}...`;
 
         try {
-            const response = await fetch(proxyUrl);
-            const data = await response.json();
+            let html = "";
             
-            if (data.result && data.result.content) {
-                status.innerText = "Page Loaded. Rewriting...";
-                renderContent(data.result.content, targetUrl);
+            if (proxy.type === "puter") {
+                // Puter.js provides a unique CORS-free fetch
+                const response = await puter.net.fetch(targetUrl);
+                html = await response.text();
             } else {
-                status.innerText = "Error: " + (data.reason || "Unknown");
+                const response = await fetch(proxy.url + encodeURIComponent(targetUrl));
+                if (!response.ok) throw new Error("Status " + response.status);
+                html = await response.text();
             }
+
+            if (html.length < 100) throw new Error("Empty response");
+
+            statusBox.innerText = `Success with ${proxy.name}!`;
+            renderHTML(html, targetUrl);
+
         } catch (err) {
-            status.innerText = "Request Failed.";
-            console.error(err);
+            console.warn(`${proxy.name} failed:`, err);
+            currentProxyIndex++;
+            loadUrl(targetUrl); // Try the next one
         }
     }
 
-    function renderContent(html, baseUrl) {
+    function renderHTML(html, baseUrl) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const base = new URL(baseUrl);
 
-        // REWRITE LINKS: Instead of navigating the browser, 
-        // they update our input and re-run the proxy function.
+        // Inject a Base tag to help the browser resolve relative paths automatically
+        if (!doc.head.querySelector('base')) {
+            const baseTag = doc.createElement('base');
+            baseTag.href = baseUrl;
+            doc.head.insertBefore(baseTag, doc.head.firstChild);
+        }
+
+        // Rewrite links to trigger our loader instead of navigating
         doc.querySelectorAll('a, form').forEach(el => {
             const attr = el.tagName === 'FORM' ? 'action' : 'href';
             const original = el.getAttribute(attr);
             if (original && !original.startsWith('#') && !original.startsWith('javascript:')) {
-                const absolute = new URL(original, base).href;
-                el.setAttribute(attr, `javascript:parent.loadFromProxy("${absolute}")`);
-            }
-        });
-
-        // REWRITE ASSETS: Point images/css directly to the proxy
-        doc.querySelectorAll('img, link, script').forEach(el => {
-            const attr = el.tagName === 'LINK' ? 'href' : 'src';
-            const original = el.getAttribute(attr);
-            if (original) {
-                const absolute = new URL(original, base).href;
-                // Using a simpler CORS proxy for assets to save Scrapfly credits
-                el.setAttribute(attr, `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(absolute)}`);
+                try {
+                    const absolute = new URL(original, base).href;
+                    el.setAttribute(attr, `javascript:parent.loadManual("${absolute}")`);
+                } catch(e) {}
             }
         });
 
         const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
         viewer.src = URL.createObjectURL(blob);
-        status.innerText = "Online";
     }
 
-    // Helper for internal links
-    window.loadFromProxy = function(url) {
-        document.getElementById('url-input').value = url;
-        requestPage();
+    window.loadManual = function(url) {
+        urlInput.value = url;
+        startLoading();
     };
 </script>
 
