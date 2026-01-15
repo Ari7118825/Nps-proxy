@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy v0.9.2 | Puter-Injected Kernel</title>
+    <title>GhostProxy v0.9.1 | Puter-Injected Kernel</title>
+    <!-- Puter.js for cloud-based networking and kernel features -->
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -14,7 +15,6 @@
             --log-blue: #44aaff;
             --log-purple: #bb88ff;
             --log-warn: #ffcc00;
-            --log-err: #ff4444;
         }
 
         body, html {
@@ -32,7 +32,12 @@
             z-index: 100;
         }
 
-        .brand { font-weight: bold; font-family: monospace; color: var(--neon-green); text-shadow: 0 0 5px var(--neon-green); }
+        .brand { 
+            font-weight: bold; 
+            font-family: monospace; 
+            color: var(--neon-green); 
+            text-shadow: 0 0 5px var(--neon-green); 
+        }
 
         input {
             flex: 1; padding: 10px; border-radius: 4px;
@@ -65,7 +70,13 @@
             display: flex; justify-content: space-between;
         }
 
-        .log-container { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column-reverse; }
+        .log-container { 
+            flex: 1; 
+            padding: 10px; 
+            overflow-y: auto; 
+            display: flex; 
+            flex-direction: column-reverse; 
+        }
 
         .log-entry {
             margin-bottom: 6px; border-left: 2px solid #222;
@@ -77,10 +88,10 @@
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
         .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
         .log-warn { color: var(--log-warn); border-left-color: var(--log-warn); }
-        .log-error { color: var(--log-err); border-left-color: var(--log-err); }
         .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
         #viewer-container { flex: 1; background: #fff; position: relative; display: flex; flex-direction: column; }
+
         iframe { width: 100%; height: 100%; border: none; background: white; }
 
         #loader {
@@ -106,7 +117,7 @@
 <body>
 
     <div id="nav">
-        <span class="brand">GHOST_PROXY V0.9.2</span>
+        <span class="brand">GHOST_PROXY V0.9.1</span>
         <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL">
         <button onclick="launch()">INITIALIZE</button>
     </div>
@@ -120,7 +131,7 @@
         <div id="viewer-container">
             <div id="loader">
                 <div class="spinner"></div>
-                <p id="loader-text" style="margin-top: 15px; font-family: monospace; color: var(--neon-green);">INJECTING PUTER KERNEL...</p>
+                <p style="margin-top: 15px; font-family: monospace; color: var(--neon-green);">INJECTING PUTER KERNEL...</p>
             </div>
             <div id="render-wrapper" style="height: 100%;">
                 <div style="padding: 50px; text-align: center; color: #888; font-family: monospace;">AWAITING COMMAND...</div>
@@ -160,7 +171,7 @@
             const data = event.data;
             if (data.type === 'GHOST_NAV') {
                 uiLog(networkLog, `NAVIGATING: ${data.url}`, 'net');
-                request(data.url);
+                launch(data.url);
             } else if (data.type === 'GHOST_NET_REQUEST') {
                 uiLog(networkLog, `FETCH: ${data.url}`, 'net');
                 request(data.url, data.method, data.body);
@@ -169,15 +180,16 @@
             }
         });
 
-        async function launch() {
-            request(urlInput.value);
+        async function launch(targetUrl) {
+            const url = targetUrl || urlInput.value;
+            request(url);
         }
 
         async function request(targetUrl, method = 'GET', body = null) {
             if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
-            
+
             urlInput.value = targetUrl;
-            uiLog(consoleLog, `CORE: Routing ${targetUrl}`, "info");
+            uiLog(consoleLog, `CORE: Routing request through Puter Tunnel...`, "info");
 
             loader.style.display = 'flex';
             document.getElementById('current-mode').innerText = "TUNNEL_ACTIVE";
@@ -188,7 +200,7 @@
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5'
+                        'Accept-Language': 'en-US,en;q=0.9'
                     }
                 };
 
@@ -197,37 +209,41 @@
                     options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
                 }
 
+                // Explicitly use puter.net.fetch
                 const response = await puter.net.fetch(targetUrl, options);
                 
-                // If the response is redirected but Puter didn't change the final URL variable
-                const finalUrl = response.url || targetUrl; 
-                let html = await response.text();
-
-                // FIX: If response is just "ok" or empty, it's often a proxy heartbeat. 
-                // We check if it's a very short response and try to re-fetch or look for refresh headers.
-                if (html.trim().toLowerCase() === 'ok' || html.length < 5) {
-                    uiLog(consoleLog, `CORE: Detected "OK" response. Recalibrating node...`, "warn");
-                    // Sometimes wait and retry once or check for redirect headers if available
-                    await new Promise(r => setTimeout(r, 1000));
+                if (!response.ok) {
+                    throw new Error(`Puter Kernel returned status: ${response.status}`);
                 }
 
-                // Handle common proxy redirect patterns
-                if (html.includes('Launching...') || html.includes('id="loading-status"') || html.includes('location.replace')) {
-                    uiLog(consoleLog, `CORE: Proxy redirect detected. Jumping...`, "info");
-                    
-                    // Regex for common JS redirects in proxies
-                    const jsMatch = html.match(/location\.(?:replace|href)\s*=\s*['"]([^'"]+)['"]/i) || 
-                                    html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/i);
-                    
-                    if (jsMatch) {
-                        const jump = new URL(jsMatch[1], finalUrl).href;
+                // FIX: Instead of directly calling .text(), check for OK status string first
+                let html = await response.text();
+
+                // If Puter returns a literal "OK" string, it often means the body wasn't handled correctly by the backend
+                // but usually, it's just a placeholder for success. We'll try to re-read or handle the content.
+                if (html.trim().toUpperCase() === "OK") {
+                    uiLog(consoleLog, `CORE_WARN: Received "OK" string. Attempting to re-fetch with stream handling...`, "warn");
+                    // Sometimes adding 'credentials: omit' or changing headers helps Puter resolve the body correctly
+                    const retryResponse = await puter.net.fetch(targetUrl, {...options, credentials: 'omit'});
+                    html = await retryResponse.text();
+                }
+
+                uiLog(consoleLog, `CORE: Received payload (${html.length} bytes)`, "success");
+
+                // Handle proxy redirect loops or loading screens
+                if (html.includes('Launching...') || html.includes('id="loading-status"')) {
+                    const match = html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/);
+                    if (match) {
+                        const jump = new URL(match[1], targetUrl).href;
+                        uiLog(consoleLog, `CORE: Following proxy jump...`, "info");
                         return request(jump);
                     }
                 }
 
-                injectIntoIframe(html, finalUrl);
+                injectIntoIframe(html, targetUrl);
             } catch (err) {
                 uiLog(consoleLog, `FETCH_ERROR: ${err.message}`, "error");
+                wrapper.innerHTML = `<div style="padding:20px; color:red; font-family:monospace;">FAILED TO LOAD: ${err.message}</div>`;
             } finally {
                 loader.style.display = 'none';
             }
@@ -238,50 +254,46 @@
             const iframe = document.createElement('iframe');
             wrapper.appendChild(iframe);
 
-            // Clean up base URL for script injection
-            const safeBaseUrl = baseUrl.replace(/"/g, '&quot;');
-
             const interceptorScript = `
             <script>
             (function() {
                 const log = (level, msg) => window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
-                const baseUrl = "${safeBaseUrl}";
+                const baseUrl = "${baseUrl}";
 
-                // Intercept Clicks
                 document.addEventListener('click', e => {
                     const a = e.target.closest('a');
-                    if (a && a.href && !a.href.startsWith('javascript') && !a.href.startsWith('#')) {
+                    if (a && a.href && !a.href.startsWith('javascript')) {
                         e.preventDefault();
                         window.parent.postMessage({ type: 'GHOST_NAV', url: a.href }, '*');
                     }
                 }, true);
 
-                // Intercept Forms
                 document.addEventListener('submit', e => {
                     e.preventDefault();
                     const fd = new FormData(e.target);
                     const params = new URLSearchParams(fd).toString();
-                    const action = new URL(e.target.getAttribute('action') || '', baseUrl).href;
                     window.parent.postMessage({
                         type: 'GHOST_NET_REQUEST',
-                        method: e.target.method || 'GET',
-                        url: action,
-                        body: e.target.method?.toUpperCase() === 'POST' ? params : null
+                        method: e.target.method,
+                        url: e.target.action,
+                        body: params
                     }, '*');
                 }, true);
 
-                log('success', 'Kernel active at node: ' + baseUrl);
+                log('success', 'Puter Kernel successfully injected into node.');
             })();
             <\/script>
             `;
 
-            // Patch paths: This is crucial for IP addresses where /path refers to the IP root
-            const urlObj = new URL(baseUrl);
-            const origin = urlObj.origin;
-
-            let processedHtml = html
-                .replace(/(src|href|action)="\//g, `$1="${origin}/`)
-                .replace(/(src|href|action)='(?!\/)/g, `$1='${origin}/`);
+            // Improved path patching for IP-based URLs
+            let processedHtml = html;
+            
+            // Only apply heavy patching if it's an IP address to avoid breaking standard sites
+            if (isIpAddress(baseUrl)) {
+                processedHtml = processedHtml
+                    .replace(/(src|href|action)="\//g, (match, p1) => `${p1}="${new URL(baseUrl).origin}/`)
+                    .replace(/(src|href|action)='\\//g, (match, p1) => `${p1}='${new URL(baseUrl).origin}/`);
+            }
 
             const blob = new Blob([`
                 <!DOCTYPE html>
@@ -290,10 +302,6 @@
                     <meta charset="UTF-8">
                     <base href="${baseUrl}">
                     ${interceptorScript}
-                    <style>
-                        /* Prevent links from breaking out of frame */
-                        html, body { overflow-x: hidden !important; }
-                    </style>
                 </head>
                 <body>
                     ${processedHtml}
@@ -305,7 +313,7 @@
         }
 
         urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
-        uiLog(consoleLog, "SYSTEM: GhostProxy v0.9.2 Initialized.");
+        uiLog(consoleLog, "SYSTEM: Puter-Backbone Kernel v5.0 Loaded.");
     </script>
 </body>
 </html>
