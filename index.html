@@ -3,93 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Integrated CORS Tunnel</title>
+    <title>Simple CodeTabs Proxy</title>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #111; }
-        iframe { width: 100%; height: 100%; border: none; }
-        #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
+        #navbar { height: 50px; background: #333; display: flex; align-items: center; padding: 0 20px; color: white; }
+        #url-input { flex-grow: 1; margin: 0 10px; padding: 5px; border-radius: 4px; border: none; }
+        button { padding: 5px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        iframe { width: 100%; height: calc(100% - 50px); border: none; background: white; }
     </style>
 </head>
 <body>
 
-    <div id="loading">Initializing Tunnel...</div>
-    <iframe id="proxyFrame" style="display:none;"></iframe>
+<div id="navbar">
+    <strong>Proxy:</strong>
+    <input type="text" id="url-input" placeholder="https://example.com" value="https://example.com">
+    <button onclick="loadPage()">Go</button>
+</div>
 
-    <script>
-        const proxyBase = "https://api.codetabs.com/v1/proxy?quest=";
-        const targetDomain = "https://www.croxyproxy.com";
+<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
 
-        // --- 1. Define the Service Worker Logic as a String ---
-        const swCode = `
-            const proxyBase = "${proxyBase}";
-            const targetDomain = "${targetDomain}";
+<script>
+    const proxyApi = "https://api.codetabs.com/v1/proxy?quest=";
+    const iframe = document.getElementById('viewer');
+    const input = document.getElementById('url-input');
 
-            self.addEventListener('fetch', (event) => {
-                const url = new URL(event.request.url);
+    async function loadPage() {
+        let targetUrl = input.value.trim();
+        if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
+        
+        try {
+            const response = await fetch(proxyApi + encodeURIComponent(targetUrl));
+            let html = await response.text();
+            
+            // Rewrite URLs so links keep using the proxy
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const base = new URL(targetUrl);
 
-                // Skip CodeTabs and direct IP addresses (Proxy Servers)
-                if (url.href.includes('codetabs.com')) return;
-                const isIP = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(url.hostname);
-                if (isIP) return;
+            // Update all relative and absolute links
+            const rewriteAttr = (tag, attr) => {
+                doc.querySelectorAll(tag).forEach(el => {
+                    const original = el.getAttribute(attr);
+                    if (original && !original.startsWith('data:') && !original.startsWith('javascript:')) {
+                        try {
+                            const absolute = new URL(original, base).href;
+                            // Set custom attribute to store original, then point to our function
+                            el.setAttribute(attr, `javascript:parent.loadManual("${absolute}")`);
+                        } catch(e) {}
+                    }
+                });
+            };
 
-                // Force all requests to targetDomain if they are coming from our origin
-                let destinationUrl = event.request.url;
-                if (url.origin === self.location.origin) {
-                    destinationUrl = targetDomain + url.pathname + url.search;
+            rewriteAttr('a', 'href');
+            rewriteAttr('form', 'action');
+            
+            // For images and scripts, we just use CodeTabs directly
+            doc.querySelectorAll('img, script, link').forEach(el => {
+                const attr = el.tagName === 'LINK' ? 'href' : 'src';
+                const original = el.getAttribute(attr);
+                if (original) {
+                    try {
+                        const absolute = new URL(original, base).href;
+                        el.setAttribute(attr, proxyApi + encodeURIComponent(absolute));
+                    } catch(e) {}
                 }
-
-                const tunneledUrl = proxyBase + encodeURIComponent(destinationUrl);
-
-                event.respondWith(
-                    fetch(tunneledUrl, {
-                        method: event.request.method,
-                        headers: event.request.headers,
-                        redirect: 'manual' 
-                    }).then(response => {
-                        // Catch internal redirects and re-tunnel them
-                        if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-                            const newLocation = response.headers.get('Location');
-                            return fetch(proxyBase + encodeURIComponent(newLocation));
-                        }
-                        return response;
-                    })
-                );
             });
-        `;
 
-        // --- 2. Register the Service Worker via Blob ---
-        async function setupProxy() {
-            if ('serviceWorker' in navigator) {
-                const blob = new Blob([swCode], { type: 'application/javascript' });
-                const workerUrl = URL.createObjectURL(blob);
+            // Inject the modified HTML into the iframe
+            const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
+            iframe.src = URL.createObjectURL(blob);
 
-                try {
-                    const reg = await navigator.serviceWorker.register(workerUrl, { scope: '/' });
-                    await navigator.serviceWorker.ready;
-                    
-                    // Small delay to ensure the worker is fully activated before the first fetch
-                    setTimeout(() => {
-                        const iframe = document.getElementById('proxyFrame');
-                        iframe.src = proxyBase + encodeURIComponent(targetDomain + '/');
-                        iframe.style.display = 'block';
-                        document.getElementById('loading').style.display = 'none';
-                    }, 500);
-
-                } catch (err) {
-                    document.getElementById('loading').innerText = "Worker Error: " + err;
-                }
-            } else {
-                document.getElementById('loading').innerText = "Service Workers not supported.";
-            }
+        } catch (err) {
+            console.error("Proxy Error:", err);
+            alert("Could not load page. CodeTabs might be rate-limited.");
         }
+    }
 
-        // --- 3. Prevent the Iframe from breaking out ---
-        // This stops scripts that try to change top.location.href
-        window.onbeforeunload = function() {
-            return "Redirect blocked";
-        };
+    // Helper to allow links inside the iframe to trigger the parent loader
+    window.loadManual = function(url) {
+        input.value = url;
+        loadPage();
+    };
 
-        setupProxy();
-    </script>
+    // Allow "Enter" key to trigger search
+    input.addEventListener("keypress", (e) => { if (e.key === "Enter") loadPage(); });
+</script>
+
 </body>
 </html>
