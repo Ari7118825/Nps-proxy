@@ -2,27 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>GhostProxy | Hardened</title>
+    <title>GhostProxy | Deep Tunnel</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #000; color: #fff; overflow: hidden; }
-        #nav { height: 50px; background: #111; display: flex; align-items: center; padding: 0 15px; gap: 10px; border-bottom: 2px solid #333; }
-        input { flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #111; color: #0f0; font-family: monospace; }
-        button { padding: 8px 15px; cursor: pointer; background: #222; color: #0f0; border: 1px solid #0f0; border-radius: 4px; font-weight: bold; }
-        #status { font-size: 11px; color: #666; width: 100px; overflow: hidden; }
-        iframe { width: 100%; height: calc(100% - 52px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', sans-serif; background: #0b0b0b; color: #00ff41; overflow: hidden; }
+        #nav { height: 60px; background: #111; display: flex; align-items: center; padding: 0 20px; gap: 15px; border-bottom: 2px solid #00ff41; box-shadow: 0 4px 15px rgba(0,255,65,0.2); }
+        input { flex: 1; padding: 12px; border-radius: 5px; border: 1px solid #00ff41; background: #000; color: #00ff41; font-family: 'Courier New', monospace; font-size: 14px; outline: none; }
+        button { padding: 12px 25px; cursor: pointer; background: #00ff41; color: #000; border: none; border-radius: 5px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        button:hover { background: #008f11; color: #fff; }
+        #status { font-size: 12px; font-family: monospace; min-width: 150px; text-align: right; color: #008f11; }
+        #viewer-container { width: 100%; height: calc(100% - 62px); background: #fff; position: relative; }
+        iframe { width: 100%; height: 100%; border: none; }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <strong>GHOST:</strong>
+    <strong>[TUNNEL_INIT]</strong>
     <input type="text" id="url-input" value="https://www.croxyproxy.com">
-    <button onclick="launch()">TNL_START</button>
-    <div id="status">IDLE</div>
+    <button onclick="launch()">Execute</button>
+    <div id="status">STATUS: STANDBY</div>
 </div>
 
-<iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
+<div id="viewer-container">
+    <iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin allow-modals"></iframe>
+</div>
 
 <script>
     const viewer = document.getElementById('viewer');
@@ -35,82 +39,92 @@
     }
 
     async function request(targetUrl, method = 'GET', body = null) {
-        statusBox.innerText = "TUNNELING...";
+        statusBox.innerText = `[ROUTING]: ${new URL(targetUrl).hostname}`;
+        
         try {
             const options = {
                 method: method,
-                headers: { 'Cookie': sessionCookies, 'Referer': 'https://www.croxyproxy.com/' }
+                headers: {
+                    'Cookie': sessionCookies,
+                    'Referer': 'https://www.croxyproxy.com/'
+                }
             };
             if (body) {
                 options.body = body;
                 options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
             }
 
+            // Using Puter's cloud network to fetch the content (The Tunnel)
             const response = await puter.net.fetch(targetUrl, options);
+            
+            // Capture Cookies for session persistence
             const newCookies = response.headers.get('set-cookie');
             if (newCookies) sessionCookies = newCookies;
 
             let html = await response.text();
             
-            // Rewrite strings that scripts use to find the top window
-            html = html.replace(/window\.top/g, 'window.self');
-            html = html.replace(/top\.location/g, 'window.self.location');
-            html = html.replace(/parent\.location/g, 'window.self.location');
+            // --- DEEP INTERCEPTION ---
+            // We strip out frame-busting code before the browser can even see it
+            html = html.replace(/window\.top/gi, 'window.self');
+            html = html.replace(/top\.location/gi, 'window.self.location');
+            html = html.replace(/parent\.location/gi, 'window.self.location');
+            html = html.replace(/window\.frameElement/gi, 'true'); // Trick scripts into thinking they aren't framed
+            
+            // Neutralize scripts that try to detect the URL
+            html = html.replace(/location\.hostname/gi, `"${new URL(targetUrl).hostname}"`);
 
             render(html, targetUrl);
-            statusBox.innerText = "TUNNEL_OPEN";
+            statusBox.innerText = "[STATUS]: ENCRYPTED_LINK";
         } catch (err) {
-            statusBox.innerText = "ERR_FAIL";
+            statusBox.innerText = "[STATUS]: BREAK_IN_COMM";
+            console.error(err);
         }
     }
 
     function render(html, baseUrl) {
+        // This script is injected at the very start of the iframe body
         const injection = `
             <script>
                 (function() {
-                    // Force window.top to refer to this frame only
+                    // Lock down properties so they cannot be changed by the site
                     Object.defineProperty(window, 'top', { get: () => window.self });
                     Object.defineProperty(window, 'parent', { get: () => window.self });
 
-                    // Block location changes via Proxy
-                    const handleUrl = (url) => {
-                        const target = new URL(url, "${baseUrl}").href;
-                        parent.postMessage({type: 'nav', url: target}, '*');
+                    const tunnelNav = (url) => {
+                        const cleanUrl = new URL(url, "${baseUrl}").href;
+                        parent.postMessage({type: 'nav', url: cleanUrl}, '*');
                     };
 
-                    // Intercept any script-based navigation
-                    const originalReplace = window.location.replace;
-                    window.location.replace = function(url) { handleUrl(url); };
-                    
-                    // Trap Click Events
+                    // Intercept Link Clicks
                     document.addEventListener('click', e => {
                         const a = e.target.closest('a');
                         if (a && a.href && !a.href.startsWith('javascript:')) {
                             e.preventDefault();
-                            e.stopImmediatePropagation();
-                            handleUrl(a.href);
+                            e.stopPropagation();
+                            tunnelNav(a.href);
                         }
                     }, true);
 
-                    // Trap Form Submits
+                    // Intercept Form Submissions
                     document.addEventListener('submit', e => {
                         e.preventDefault();
-                        const fd = new FormData(e.target);
-                        const data = new URLSearchParams(fd).toString();
-                        parent.postMessage({type: 'form', url: e.target.action, data: data}, '*');
+                        const formData = new FormData(e.target);
+                        const params = new URLSearchParams(formData).toString();
+                        const action = new URL(e.target.action || '', "${baseUrl}").href;
+                        parent.postMessage({type: 'form', url: action, data: params}, '*');
                     }, true);
 
-                    // MutationObserver to stop dynamic "Break-out" scripts
-                    new MutationObserver(mutations => {
-                        mutations.forEach(m => {
-                            m.addedNodes.forEach(node => {
-                                if (node.tagName === 'SCRIPT' && node.innerHTML.includes('top.location')) {
-                                    node.innerHTML = node.innerHTML.replace(/top\.location/g, 'window.self.location');
-                                }
-                            });
-                        });
-                    }).observe(document.documentElement, { childList: true, subtree: true });
-
+                    // Stop window.location.href = "..." redirects
+                    const locProxy = new Proxy(window.location, {
+                        set: function(target, prop, value) {
+                            if (prop === 'href' || prop === 'assign') {
+                                tunnelNav(value);
+                                return true;
+                            }
+                            target[prop] = value;
+                            return true;
+                        }
+                    });
                 })();
             <\/script>
             <base href="${baseUrl}">
@@ -118,6 +132,7 @@
 
         const finalHtml = injection + html;
         const blob = new Blob([finalHtml], { type: 'text/html' });
+        
         if(viewer.src) URL.revokeObjectURL(viewer.src);
         viewer.src = URL.createObjectURL(blob);
     }
@@ -127,9 +142,11 @@
             urlInput.value = e.data.url;
             request(e.data.url);
         } else if (e.data.type === 'form') {
+            urlInput.value = e.data.url;
             request(e.data.url, 'POST', e.data.data);
         }
     });
 </script>
+
 </body>
 </html>
