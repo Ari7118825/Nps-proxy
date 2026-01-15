@@ -10,7 +10,7 @@
     <style>
         .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #viewer-frame { width: 100%; height: 700px; border: none; background: white; border-radius: 8px; }
+        #viewer-frame { width: 100%; height: 750px; border: none; background: white; border-radius: 8px; }
     </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen p-4 flex flex-col items-center">
@@ -111,45 +111,33 @@
                     throw new Error("Puter SDK not initialized.");
                 }
 
-                logStatus(`Proxying ${finalUrl}...`);
+                logStatus(`Deep Proxying ${finalUrl}...`);
 
-                const fetchWithRetry = async (fetchUrl, attempt = 1) => {
-                    try {
-                        const response = await puter.net.fetch(fetchUrl, {
-                            method: 'GET',
-                            headers: {
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                            }
-                        });
-                        return response;
-                    } catch (e) {
-                        if (attempt < 3) return fetchWithRetry(fetchUrl, attempt + 1);
-                        throw e;
-                    }
-                };
+                const response = await puter.net.fetch(finalUrl, {
+                    method: 'GET',
+                    headers: { 'User-Agent': navigator.userAgent }
+                });
 
-                const response = await fetchWithRetry(finalUrl);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 let html = await response.text();
                 
-                const rewriteResources = (content, base) => {
-                    const urlObj = new URL(base);
-                    const origin = urlObj.origin;
-                    
+                // Advanced Rewriter: Replaces relative paths in common attributes
+                const rewrite = (content, base) => {
+                    const u = new URL(base);
+                    const origin = u.origin;
                     return content
-                        .replace(/(src|href)="\/([^/])/g, `$1="${origin}/$2`) 
-                        .replace(/(src|href)="\.\//g, `$1="${base.substring(0, base.lastIndexOf('/') + 1)}`); 
+                        .replace(/(src|href|action)="\/(?!\/)/g, `$1="${origin}/`) // Root-relative
+                        .replace(/(src|href|action)="\.\//g, `$1="${base.substring(0, base.lastIndexOf('/') + 1)}`) // Relative
+                        .replace(/integrity="[^"]*"/g, ''); // Remove SRI to prevent block on modified files
                 };
 
-                html = rewriteResources(html, finalUrl);
-
-                logStatus(`Injected base and rewriters. Initializing sandbox...`);
+                html = rewrite(html, finalUrl);
                 injectIntoIframe(html, finalUrl);
 
             } catch (err) {
                 logStatus(`TUNNEL ERROR: ${err.message}`);
-                wrapper.innerHTML = `<div class="p-10 text-red-500 font-mono text-center">Connection Failed: ${err.message}<br><small class="text-slate-500">Note: Some sites like Discord have strict security that requires a full proxy server.</small></div>`;
+                wrapper.innerHTML = `<div class="p-10 text-red-500 font-mono text-center">Connection Failed: ${err.message}</div>`;
             } finally {
                 btn.disabled = false;
                 btnLoader.classList.add('hidden');
@@ -160,50 +148,47 @@
             wrapper.innerHTML = '';
             const iframe = document.createElement('iframe');
             iframe.id = 'viewer-frame';
-            iframe.sandbox = "allow-scripts allow-forms allow-same-origin allow-popups";
+            // Discord requires these permissions for login
+            iframe.sandbox = "allow-scripts allow-forms allow-same-origin allow-popups allow-storage-access-by-user-activation";
             wrapper.appendChild(iframe);
 
-            const interceptor = `
-                <script>
-                (function() {
-                    const baseUrl = "${baseUrl}";
-                    
-                    document.addEventListener('click', e => {
-                        const a = e.target.closest('a');
-                        if (a && a.href && !a.href.startsWith('javascript:') && !a.getAttribute('href').startsWith('#')) {
-                            e.preventDefault();
-                            window.parent.postMessage({ type: 'TUNNEL_NAV', url: a.href }, '*');
-                        }
-                    }, true);
+            // Using standard string concatenation for the injection to avoid nested template literal escaping issues
+            const proxyScript = 
+                '<script>' +
+                '(function() {' +
+                '    const baseUrl = "' + baseUrl + '";' +
+                '    const originalFetch = window.fetch;' +
+                '    window.fetch = function(url, options) {' +
+                '        const fullUrl = new URL(url, baseUrl).href;' +
+                '        console.log("[PuterTunnel] Fetching:", fullUrl);' +
+                '        return originalFetch(url, options);' +
+                '    };' +
+                '    document.addEventListener("click", e => {' +
+                '        const a = e.target.closest("a");' +
+                '        if (a && a.href && !a.href.startsWith("javascript:") && !a.getAttribute("href").startsWith("#")) {' +
+                '            e.preventDefault();' +
+                '            window.parent.postMessage({ type: "TUNNEL_NAV", url: a.href }, "*");' +
+                '        }' +
+                '    }, true);' +
+                '    document.addEventListener("submit", e => {' +
+                '        e.preventDefault();' +
+                '        const form = e.target;' +
+                '        const action = form.getAttribute("action") || "";' +
+                '        const url = new URL(action, baseUrl).href;' +
+                '        window.parent.postMessage({ type: "TUNNEL_NAV", url: url }, "*");' +
+                '    }, true);' +
+                '})();' +
+                '<\/script>';
 
-                    document.addEventListener('submit', e => {
-                        e.preventDefault();
-                        const form = e.target;
-                        const action = form.getAttribute('action') || '';
-                        const url = new URL(action, baseUrl).href;
-                        window.parent.postMessage({ type: 'TUNNEL_NAV', url: url }, '*');
-                    }, true);
-                })();
-                <\/script>
-            `;
-
-            // Fixed the syntax error by correctly escaping backticks and dollar signs
-            const docContent = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <base href="${baseUrl}">
-                    ${interceptor}
-                    <style>
-                        body { margin: 0; padding: 0; background: white; color: black; }
-                    </style>
-                </head>
-                <body>
-                    ${html}
-                </body>
-                </html>
-            `;
+            const docContent = '<!DOCTYPE html>' +
+                '<html>' +
+                '<head>' +
+                '    <meta charset="UTF-8">' +
+                '    <base href="' + baseUrl + '">' +
+                '    ' + proxyScript +
+                '</head>' +
+                '<body>' + html + '</body>' +
+                '</html>';
 
             const blob = new Blob([docContent], { type: 'text/html' });
             iframe.src = URL.createObjectURL(blob);
