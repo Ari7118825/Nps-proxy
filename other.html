@@ -10,46 +10,53 @@
     <style>
         .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
         @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #viewer-frame { width: 100%; height: 750px; border: none; background: white; border-radius: 8px; }
+        #viewer-frame { width: 100%; height: calc(100vh - 180px); border: none; background: white; border-radius: 0 0 8px 8px; }
+        .address-bar { transition: all 0.3s ease; }
+        .address-bar:focus-within { ring: 2px; ring-color: #3b82f6; }
     </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen p-4 flex flex-col items-center">
+<body class="bg-slate-900 text-white min-h-screen flex flex-col items-center">
 
-    <div class="bg-slate-800 p-6 rounded-xl shadow-2xl w-full max-w-6xl border border-slate-700">
-        <div class="flex items-center justify-between mb-4">
-            <div>
-                <h1 class="text-2xl font-bold text-blue-400">Puter Native Tunnel</h1>
-                <p class="text-slate-400 text-xs mt-1">Direct cloud routing via Puter.js Backbone</p>
-            </div>
-            <div id="sdkStatus" class="px-2 py-1 rounded text-[10px] bg-amber-900/50 text-amber-400 border border-amber-700">
-                SDK LOADING
-            </div>
-        </div>
-
-        <div class="flex flex-col md:flex-row gap-3 mb-6">
-            <input type="text" id="targetUrl" placeholder="Enter URL (e.g., https://discord.com/login)" value="https://discord.com/login" 
-                class="flex-1 p-3 rounded bg-slate-900 border border-slate-700 focus:outline-none focus:border-blue-500 transition-colors text-white font-mono text-sm">
-            
-            <button onclick="launchTunnel()" id="btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded transition-all flex items-center justify-center disabled:opacity-50">
-                <span id="btnText">Connect</span>
-                <div id="btnLoader" class="hidden loader ease-linear rounded-full border-2 border-t-2 border-gray-200 h-4 w-4 ml-2"></div>
-            </button>
-        </div>
-
-        <div id="statusArea" class="mb-4 hidden">
-            <div id="statusMsg" class="text-xs text-slate-400 font-mono bg-slate-900 p-2 rounded border border-slate-700 break-all"></div>
-        </div>
-
-        <div id="viewerContainer" class="bg-slate-100 rounded-lg overflow-hidden border border-slate-600 hidden">
-            <div class="bg-slate-200 p-2 flex items-center gap-2 border-bottom border-slate-300">
-                <div class="flex gap-1.5">
-                    <div class="w-3 h-3 rounded-full bg-red-400"></div>
-                    <div class="w-3 h-3 rounded-full bg-amber-400"></div>
-                    <div class="w-3 h-3 rounded-full bg-emerald-400"></div>
+    <!-- Top Navigation Bar -->
+    <div class="w-full bg-slate-800 border-b border-slate-700 p-3 sticky top-0 z-50 shadow-lg">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center gap-4">
+            <div class="flex items-center gap-3 shrink-0">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl">P</div>
+                <div class="hidden sm:block">
+                    <h1 class="text-sm font-bold text-white leading-none">Puter Tunnel</h1>
+                    <div id="sdkStatus" class="text-[10px] text-amber-400 uppercase tracking-tighter">SDK LOADING</div>
                 </div>
-                <div id="browserAddress" class="text-[10px] text-slate-600 font-mono ml-4 truncate flex-1"></div>
             </div>
-            <div id="render-wrapper">
+
+            <div class="flex-1 w-full flex gap-2">
+                <div class="relative flex-1 group">
+                    <input type="text" id="targetUrl" placeholder="Enter URL (e.g., discord.com/login)" value="https://discord.com/login" 
+                        class="address-bar w-full p-2 pl-4 rounded-full bg-slate-900 border border-slate-700 focus:outline-none text-white font-mono text-sm">
+                </div>
+                
+                <button onclick="launchTunnel()" id="btn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded-full transition-all flex items-center justify-center disabled:opacity-50">
+                    <span id="btnText">Go</span>
+                    <div id="btnLoader" class="hidden loader ease-linear rounded-full border-2 border-t-2 border-gray-200 h-3 w-3 ml-2"></div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full max-w-7xl p-4 flex-1 flex flex-col">
+        <div id="statusArea" class="mb-2 hidden">
+            <div id="statusMsg" class="text-[10px] text-slate-500 font-mono text-center truncate"></div>
+        </div>
+
+        <div id="viewerContainer" class="bg-white rounded-lg shadow-2xl flex-1 flex flex-col overflow-hidden hidden">
+            <div class="bg-slate-100 p-1.5 flex items-center border-b border-slate-200">
+                <div class="flex gap-1.5 px-2">
+                    <div class="w-2.5 h-2.5 rounded-full bg-red-400"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-amber-400"></div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+                </div>
+                <div id="browserAddress" class="text-[10px] text-slate-400 font-mono ml-4 truncate">Initializing session...</div>
+            </div>
+            <div id="render-wrapper" class="flex-1">
                 <!-- Iframe injected here -->
             </div>
         </div>
@@ -67,7 +74,7 @@
             const statusEl = document.getElementById('sdkStatus');
             if (typeof puter !== 'undefined' && puter.net) {
                 statusEl.innerText = "TUNNEL READY";
-                statusEl.className = "px-2 py-1 rounded text-[10px] bg-emerald-900/50 text-emerald-400 border border-emerald-700";
+                statusEl.classList.replace('text-amber-400', 'text-emerald-400');
                 return true;
             }
             return false;
@@ -79,14 +86,13 @@
 
         window.addEventListener('message', (event) => {
             if (event.data.type === 'TUNNEL_NAV') {
-                logStatus(`Navigating to: ${event.data.url}`);
                 launchTunnel(event.data.url);
             }
         });
 
         function logStatus(msg) {
             statusArea.classList.remove('hidden');
-            statusMsg.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            statusMsg.innerText = msg;
         }
 
         async function launchTunnel(targetUrl) {
@@ -111,33 +117,33 @@
                     throw new Error("Puter SDK not initialized.");
                 }
 
-                logStatus(`Deep Proxying ${finalUrl}...`);
+                logStatus(`Fetching ${finalUrl}...`);
 
                 const response = await puter.net.fetch(finalUrl, {
                     method: 'GET',
                     headers: { 'User-Agent': navigator.userAgent }
                 });
 
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
 
                 let html = await response.text();
                 
-                // Advanced Rewriter: Replaces relative paths in common attributes
+                // Rewrite basic static attributes
                 const rewrite = (content, base) => {
                     const u = new URL(base);
                     const origin = u.origin;
                     return content
-                        .replace(/(src|href|action)="\/(?!\/)/g, `$1="${origin}/`) // Root-relative
-                        .replace(/(src|href|action)="\.\//g, `$1="${base.substring(0, base.lastIndexOf('/') + 1)}`) // Relative
-                        .replace(/integrity="[^"]*"/g, ''); // Remove SRI to prevent block on modified files
+                        .replace(/(src|href|action)="\/(?!\/)/g, `$1="${origin}/`)
+                        .replace(/(src|href|action)="\.\//g, `$1="${base.substring(0, base.lastIndexOf('/') + 1)}`)
+                        .replace(/integrity="[^"]*"/g, ''); 
                 };
 
                 html = rewrite(html, finalUrl);
                 injectIntoIframe(html, finalUrl);
 
             } catch (err) {
-                logStatus(`TUNNEL ERROR: ${err.message}`);
-                wrapper.innerHTML = `<div class="p-10 text-red-500 font-mono text-center">Connection Failed: ${err.message}</div>`;
+                logStatus(`Error: ${err.message}`);
+                wrapper.innerHTML = `<div class="p-10 text-red-500 font-mono text-center">Failed to load: ${err.message}</div>`;
             } finally {
                 btn.disabled = false;
                 btnLoader.classList.add('hidden');
@@ -148,21 +154,29 @@
             wrapper.innerHTML = '';
             const iframe = document.createElement('iframe');
             iframe.id = 'viewer-frame';
-            // Discord requires these permissions for login
+            // Sandbox with necessary permissions for modern web apps
             iframe.sandbox = "allow-scripts allow-forms allow-same-origin allow-popups allow-storage-access-by-user-activation";
             wrapper.appendChild(iframe);
 
-            // Using standard string concatenation for the injection to avoid nested template literal escaping issues
+            // This script is injected into the proxied page's context
             const proxyScript = 
                 '<script>' +
                 '(function() {' +
                 '    const baseUrl = "' + baseUrl + '";' +
                 '    const originalFetch = window.fetch;' +
-                '    window.fetch = function(url, options) {' +
+                '    const originalOpen = XMLHttpRequest.prototype.open;' +
+                '' +
+                '    // 1. Intercept Fetch' +
+                '    window.fetch = async function(resource, init) {' +
+                '        const url = (resource instanceof Request) ? resource.url : resource;' +
                 '        const fullUrl = new URL(url, baseUrl).href;' +
-                '        console.log("[PuterTunnel] Fetching:", fullUrl);' +
-                '        return originalFetch(url, options);' +
+                '        console.log("[PuterTunnel] Fetch Intercepted:", fullUrl);' +
+                '        // In a perfect world, we would route this through puter.net.fetch here' +
+                '        // However, since we are inside a sandboxed iframe, we still rely on the base tag for now' +
+                '        return originalFetch(resource, init);' +
                 '    };' +
+                '' +
+                '    // 2. Intercept Navigation' +
                 '    document.addEventListener("click", e => {' +
                 '        const a = e.target.closest("a");' +
                 '        if (a && a.href && !a.href.startsWith("javascript:") && !a.getAttribute("href").startsWith("#")) {' +
@@ -170,6 +184,8 @@
                 '            window.parent.postMessage({ type: "TUNNEL_NAV", url: a.href }, "*");' +
                 '        }' +
                 '    }, true);' +
+                '' +
+                '    // 3. Intercept Forms' +
                 '    document.addEventListener("submit", e => {' +
                 '        e.preventDefault();' +
                 '        const form = e.target;' +
