@@ -2,24 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Universal Keyless Proxy</title>
+    <title>Session-Persistent Proxy</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #1a1a1a; color: #eee; }
-        #nav { height: 60px; background: #222; display: flex; align-items: center; padding: 0 20px; border-bottom: 2px solid #444; }
-        input { flex: 1; margin: 0 15px; padding: 10px; border-radius: 4px; border: 1px solid #555; background: #333; color: white; }
-        button { padding: 10px 20px; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; }
-        #status { font-size: 12px; margin-left: 10px; color: #aaa; }
-        iframe { width: 100%; height: calc(100% - 62px); border: none; background: white; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; background: #121212; color: #fff; }
+        #nav { height: 60px; background: #1e1e1e; display: flex; align-items: center; padding: 0 20px; border-bottom: 1px solid #333; }
+        input { flex: 1; margin: 0 15px; padding: 10px; border-radius: 4px; border: 1px solid #444; background: #2b2b2b; color: white; }
+        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }
+        #status { font-size: 11px; color: #888; width: 150px; overflow: hidden; }
+        iframe { width: 100%; height: calc(100% - 61px); border: none; background: white; }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <strong>Universal Proxy</strong>
-    <input type="text" id="url-input" placeholder="https://www.croxyproxy.com" value="https://www.croxyproxy.com">
-    <button onclick="startLoading()">Launch</button>
-    <div id="status">Idle</div>
+    <strong>SessionProxy</strong>
+    <input type="text" id="url-input" value="https://www.croxyproxy.com">
+    <button onclick="launch()">Launch</button>
+    <div id="status">Ready</div>
 </div>
 
 <iframe id="viewer" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>
@@ -29,69 +29,60 @@
     const statusBox = document.getElementById('status');
     const urlInput = document.getElementById('url-input');
 
-    // List of free, no-key CORS proxies
-    const proxies = [
-        { name: "Puter Cloud", type: "puter" },
-        { name: "CodeTabs", url: "https://api.codetabs.com/v1/proxy?quest=" },
-        { name: "AllOrigins", url: "https://api.allorigins.win/raw?url=" },
-        { name: "Cors-Anywhere (Public)", url: "https://cors-anywhere.herokuapp.com/" },
-        { name: "ThingProxy", url: "https://thingproxy.freeboard.io/fetch/" }
-    ];
+    // Simple Cookie Jar using LocalStorage
+    const CookieJar = {
+        set: (url, cookieStr) => {
+            const domain = new URL(url).hostname;
+            localStorage.setItem(`cookie_${domain}`, cookieStr);
+        },
+        get: (url) => {
+            const domain = new URL(url).hostname;
+            return localStorage.getItem(`cookie_${domain}`) || "";
+        }
+    };
 
-    let currentProxyIndex = 0;
-
-    async function startLoading() {
-        currentProxyIndex = 0;
+    async function launch() {
         loadUrl(urlInput.value);
     }
 
     async function loadUrl(targetUrl) {
-        if (currentProxyIndex >= proxies.length) {
-            statusBox.innerHTML = "<span style='color:red'>All proxies failed.</span>";
-            return;
-        }
-
-        const proxy = proxies[currentProxyIndex];
-        statusBox.innerText = `Trying ${proxy.name}...`;
-
+        statusBox.innerText = "Fetching with Session...";
+        
         try {
-            let html = "";
-            
-            if (proxy.type === "puter") {
-                // Puter.js provides a unique CORS-free fetch
-                const response = await puter.net.fetch(targetUrl);
-                html = await response.text();
-            } else {
-                const response = await fetch(proxy.url + encodeURIComponent(targetUrl));
-                if (!response.ok) throw new Error("Status " + response.status);
-                html = await response.text();
+            // 1. Get saved cookies for this domain
+            const savedCookies = CookieJar.get(targetUrl);
+
+            // 2. Fetch using Puter.js (allows custom headers)
+            const response = await puter.net.fetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    'Cookie': savedCookies,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
+
+            // 3. Extract new cookies from response headers
+            const setCookie = response.headers.get('set-cookie');
+            if (setCookie) {
+                CookieJar.set(targetUrl, setCookie);
             }
 
-            if (html.length < 100) throw new Error("Empty response");
-
-            statusBox.innerText = `Success with ${proxy.name}!`;
-            renderHTML(html, targetUrl);
+            const html = await response.text();
+            statusBox.innerText = "Injecting Session...";
+            render(html, targetUrl);
 
         } catch (err) {
-            console.warn(`${proxy.name} failed:`, err);
-            currentProxyIndex++;
-            loadUrl(targetUrl); // Try the next one
+            statusBox.innerText = "Error: " + err.message;
+            console.error(err);
         }
     }
 
-    function renderHTML(html, baseUrl) {
+    function render(html, baseUrl) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const base = new URL(baseUrl);
 
-        // Inject a Base tag to help the browser resolve relative paths automatically
-        if (!doc.head.querySelector('base')) {
-            const baseTag = doc.createElement('base');
-            baseTag.href = baseUrl;
-            doc.head.insertBefore(baseTag, doc.head.firstChild);
-        }
-
-        // Rewrite links to trigger our loader instead of navigating
+        // Standard Rewriting Logic
         doc.querySelectorAll('a, form').forEach(el => {
             const attr = el.tagName === 'FORM' ? 'action' : 'href';
             const original = el.getAttribute(attr);
@@ -103,13 +94,19 @@
             }
         });
 
+        // Use a base tag to help with relative assets (CSS/Images)
+        const baseTag = doc.createElement('base');
+        baseTag.href = baseUrl;
+        doc.head.insertBefore(baseTag, doc.head.firstChild);
+
         const blob = new Blob([doc.documentElement.outerHTML], { type: 'text/html' });
         viewer.src = URL.createObjectURL(blob);
+        statusBox.innerText = "Connected";
     }
 
     window.loadManual = function(url) {
         urlInput.value = url;
-        startLoading();
+        loadUrl(url);
     };
 </script>
 
