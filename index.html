@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy v4 | Deep Tunnel & SOCKS5</title>
+    <title>GhostProxy v4.3 | Debug & Traffic Monitor</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -11,6 +11,8 @@
             --dark-bg: #050505;
             --panel-bg: #111;
             --border-color: #333;
+            --log-blue: #44aaff;
+            --log-purple: #bb88ff;
         }
 
         body, html {
@@ -25,53 +27,65 @@
             height: 60px; background: var(--panel-bg);
             display: flex; align-items: center; padding: 0 20px; gap: 15px;
             border-bottom: 2px solid var(--neon-green);
-            box-shadow: 0 4px 20px rgba(0,255,65,0.1);
             z-index: 100;
         }
 
         .brand { font-weight: bold; font-family: monospace; color: var(--neon-green); text-shadow: 0 0 5px var(--neon-green); }
         
         input {
-            flex: 1; padding: 12px; border-radius: 4px;
+            flex: 1; padding: 10px; border-radius: 4px;
             border: 1px solid var(--border-color);
             background: #000; color: var(--neon-green);
             font-family: 'Consolas', monospace; outline: none;
         }
 
         button {
-            padding: 10px 20px; cursor: pointer;
+            padding: 8px 15px; cursor: pointer;
             background: var(--neon-green); color: #000;
             border: none; border-radius: 4px; font-weight: bold;
+            transition: opacity 0.2s;
         }
+        button:hover { opacity: 0.8; }
+        button.alt { background: #333; color: #fff; }
 
         #main-layout { display: flex; height: calc(100% - 62px); width: 100%; }
 
-        #debug-console {
-            width: 320px; background: #000;
+        /* Left Console: Browser Logs */
+        /* Right Console: Network Traffic */
+        .side-panel {
+            width: 300px; background: #000;
             border-right: 1px solid var(--border-color);
             display: flex; flex-direction: column;
             font-family: 'Consolas', monospace; font-size: 11px;
         }
+        #network-panel { border-right: none; border-left: 1px solid var(--border-color); }
 
-        #debug-header {
-            padding: 10px; background: var(--panel-bg);
+        .panel-header {
+            padding: 8px 12px; background: var(--panel-bg);
             border-bottom: 1px solid var(--border-color);
             font-weight: bold; text-transform: uppercase;
+            display: flex; justify-content: space-between;
         }
 
-        #debug-log { flex: 1; padding: 10px; overflow-y: auto; color: #008f11; }
+        .log-container { flex: 1; padding: 10px; overflow-y: auto; overflow-x: hidden; }
 
-        .log-entry { margin-bottom: 4px; border-left: 2px solid #222; padding-left: 8px; }
-        .log-time { color: #666; margin-right: 5px; }
+        .log-entry { 
+            margin-bottom: 6px; border-left: 2px solid #222; 
+            padding-left: 8px; word-break: break-all; 
+            line-height: 1.4;
+        }
+        .log-time { color: #666; margin-right: 5px; font-size: 10px; }
         .log-error { color: #ff4444; border-left-color: #ff4444; }
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
-        .log-warn { color: #ffaa00; border-left-color: #ffaa00; }
+        .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
+        .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
-        #viewer-container { flex: 1; background: #fff; position: relative; overflow: auto; }
+        #viewer-container { flex: 1; background: #fff; position: relative; overflow: auto; display: flex; flex-direction: column; }
+        #render-target { flex: 1; position: relative; }
 
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: none;
+            background: rgba(0,0,0,0.95); display: none;
             justify-content: center; align-items: center; z-index: 50; flex-direction: column;
         }
 
@@ -89,64 +103,87 @@
 <div id="nav">
     <span class="brand">GHOST_PROXY v4.3</span>
     <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Target URL...">
-    <button onclick="launch()">Execute</button>
+    <button onclick="launch()">EXECUTE</button>
+    <button class="alt" onclick="location.reload()">REFRESH UI</button>
 </div>
 
 <div id="main-layout">
-    <div id="debug-console">
-        <div id="debug-header">SOCKS5 Tunnel Terminal</div>
-        <div id="debug-log"></div>
+    <!-- LEFT: Console Logs -->
+    <div class="side-panel" id="console-panel">
+        <div class="panel-header">
+            <span>Browser Console</span>
+            <span style="color: #666" id="console-count">0</span>
+        </div>
+        <div id="console-log" class="log-container"></div>
     </div>
 
+    <!-- CENTER: The Viewer -->
     <div id="viewer-container">
-        <div id="loader">
-            <div class="spinner"></div>
-            <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green);">FORCING TUNNEL PENETRATION...</p>
+        <div id="render-target">
+            <div id="loader">
+                <div class="spinner"></div>
+                <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green);">INTERCEPTING DATA STREAMS...</p>
+            </div>
+            <div id="placeholder" style="padding: 40px; color: #999; text-align: center;">
+                <h2>Proxy Engine Ready</h2>
+                <p>Injecting monitoring scripts into tunnel...</p>
+            </div>
         </div>
-        <div id="placeholder" style="padding: 40px; color: #999; text-align: center;">
-            <h2 style="margin: 0;">Proxy Engine v4.3</h2>
-            <p>Ready to bypass frame-locking...</p>
+    </div>
+
+    <!-- RIGHT: Network Traffic -->
+    <div class="side-panel" id="network-panel">
+        <div class="panel-header">
+            <span>Network Traffic</span>
+            <span style="color: #666" id="net-count">0</span>
         </div>
+        <div id="network-log" class="log-container"></div>
     </div>
 </div>
 
 <script>
-const viewer = document.getElementById('viewer-container');
+const renderTarget = document.getElementById('render-target');
 const urlInput = document.getElementById('url-input');
-const debugLog = document.getElementById('debug-log');
+const consoleLog = document.getElementById('console-log');
+const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
-const loaderText = document.getElementById('loader-text');
 
 let sessionCookies = "";
 let socksList = [];
-let activeSocks = null;
 
-const SOCKS_SOURCES = [
-    "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all&simplified=true",
-    "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt"
-];
-
-function log(message, type = 'info') {
+// Helper for UI logging
+function uiLog(target, message, type = 'info') {
     const entry = document.createElement('div');
     entry.className = `log-entry log-${type}`;
-    const time = new Date().toLocaleTimeString([], { hour12: false });
+    const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
     entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
-    debugLog.prepend(entry);
+    target.prepend(entry);
+    
+    // Update counters
+    const countId = target.id === 'console-log' ? 'console-count' : 'net-count';
+    const counter = document.getElementById(countId);
+    counter.innerText = parseInt(counter.innerText) + 1;
 }
 
-async function refreshSocksPool() {
-    log("REFRESHING_SOCKS_NODES...", "warn");
-    for (const source of SOCKS_SOURCES) {
-        try {
-            const resp = await puter.net.fetch(source);
-            const text = await resp.text();
-            const found = text.trim().split('\n').filter(line => line.includes(':'));
-            if (found.length > 0) socksList = [...new Set([...socksList, ...found])];
-        } catch (e) {}
+// BRIDGE: Listen for messages from the "Proxied" page
+window.addEventListener('message', (event) => {
+    const data = event.data;
+    if (data.type === 'GHOST_CONSOLE') {
+        uiLog(consoleLog, `[${data.level}] ${data.msg}`, data.level === 'error' ? 'error' : 'info');
+    } else if (data.type === 'GHOST_NET') {
+        uiLog(networkLog, `<b>${data.method}</b> ${data.url} <br><small>Status: ${data.status || 'Pending'}</small>`, 'net');
     }
-    if (socksList.length > 0) {
-        activeSocks = socksList[Math.floor(Math.random() * socksList.length)];
-        log(`TUNNEL_NODE: ${activeSocks}`, "success");
+});
+
+async function refreshSocksPool() {
+    uiLog(consoleLog, "SYSTEM: Refreshing SOCKS pool...", "success");
+    try {
+        const resp = await puter.net.fetch("https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=all&simplified=true");
+        const text = await resp.text();
+        socksList = text.trim().split('\n').filter(l => l.includes(':'));
+        uiLog(consoleLog, `SYSTEM: ${socksList.length} nodes active.`, "success");
+    } catch (e) {
+        uiLog(consoleLog, "SYSTEM: Failed to load SOCKS pool. Using direct tunnel.", "error");
     }
 }
 
@@ -156,15 +193,11 @@ async function launch() {
 }
 
 async function request(targetUrl, method = 'GET', body = null, depth = 0) {
-    if (depth > 8) {
-        log("MAX_RECURSION_LIMIT", "error");
-        return;
-    }
-    
+    if (depth > 8) return uiLog(consoleLog, "LIMIT: Max recursion reached", "error");
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
-    
+
     urlInput.value = targetUrl;
-    log(`FETCHING: ${targetUrl}`, "info");
+    uiLog(networkLog, `OUTBOUND: ${method} ${targetUrl}`, "net");
     loader.style.display = 'flex';
 
     try {
@@ -172,54 +205,53 @@ async function request(targetUrl, method = 'GET', body = null, depth = 0) {
             method: method,
             headers: {
                 'Cookie': sessionCookies,
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': '*/*',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
             }
         };
-
         if (body) {
             options.body = body;
             options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
 
         const response = await puter.net.fetch(targetUrl, options);
-        
-        // Handle Cookie Chain
         const newCookies = response.headers.get('set-cookie');
         if (newCookies) sessionCookies = newCookies;
 
         let html = await response.text();
+        
+        // --- ADVANCED AUTO-LAUNCH FIX ---
+        // If we are stuck on the "Launching" page, look for the final destination URL
+        if (html.includes('Proxy is launching') || html.includes('id="loading"') || html.includes('launching...')) {
+            uiLog(consoleLog, "STALL: Proxy launch sequence detected. Scanning for exit URL...", "warn");
+            
+            // Search for direct location replaces or variable-based URLs
+            const patterns = [
+                /location\.replace\(['"]([^'"]+)['"]\)/,
+                /window\.location\s*=\s*['"]([^'"]+)['"]/,
+                /href\s*=\s*['"]([^'"]+proxy\.php[^'"]+)['"]/,
+                /url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/
+            ];
 
-        // --- BYPASS LOGIC: FORCE REDIRECTS ---
-        // 1. Check for JS location.replace
-        const jsRedirect = html.match(/location\.replace\(['"]([^'"]+)['"]\)/);
-        if (jsRedirect && jsRedirect[1]) {
-            log("BYPASS: Detected JS Redirect. Jumping...", "warn");
-            return request(new URL(jsRedirect[1], targetUrl).href, 'GET', null, depth + 1);
-        }
+            for (let pattern of patterns) {
+                const match = html.match(pattern);
+                if (match && match[1]) {
+                    uiLog(consoleLog, `BYPASS: Found exit path: ${match[1]}`, "success");
+                    return request(new URL(match[1], targetUrl).href, 'GET', null, depth + 1);
+                }
+            }
 
-        // 2. Check for Meta Refreshes
-        const metaMatch = html.match(/content=["']0;\s*url=([^"']+)["']/i);
-        if (metaMatch && metaMatch[1]) {
-            log("BYPASS: Detected Meta Refresh. Jumping...", "warn");
-            return request(new URL(metaMatch[1], targetUrl).href, 'GET', null, depth + 1);
-        }
-
-        // 3. Check for specific CroxyProxy "Launching" patterns
-        if (html.includes('Proxy is launching') || html.includes('id="loading"')) {
-            log("STALL: Resolving launch sequence...", "warn");
-            // If we're stuck, try to find any URL in the page and force load it
-            const anyUrlMatch = html.match(/https:\/\/www\.croxyproxy\.com\/_([a-zA-Z0-9]+)/);
-            if (anyUrlMatch) {
-                log("HACK: Extracted session URL. Forcing load...", "success");
-                return request(anyUrlMatch[0], 'GET', null, depth + 1);
+            // If no URL found, check if there's a specific form we should have submitted
+            const formMatch = html.match(/<form[^>]+action=['"]([^'"]+)['"]/);
+            if (formMatch && html.includes('autostart')) {
+                uiLog(consoleLog, "BYPASS: Found autostart form. Forcing submission...", "success");
+                return request(new URL(formMatch[1], targetUrl).href, 'POST', 'btn=1', depth + 1);
             }
         }
 
         render(html, targetUrl);
     } catch (err) {
-        log(`BRIDGE_FAILURE: ${err.message}`, "error");
+        uiLog(consoleLog, `BRIDGE_ERR: ${err.message}`, "error");
     } finally {
         loader.style.display = 'none';
     }
@@ -229,59 +261,102 @@ function render(html, baseUrl) {
     const placeholder = document.getElementById('placeholder');
     if (placeholder) placeholder.remove();
 
-    let shadow = viewer.shadowRoot || viewer.attachShadow({mode: 'open'});
+    let shadow = renderTarget.shadowRoot || renderTarget.attachShadow({mode: 'open'});
     shadow.innerHTML = '';
+
+    const debugScript = `
+        <script>
+        (function() {
+            // 1. Hook Console
+            ['log', 'error', 'warn', 'info'].forEach(level => {
+                const original = console[level];
+                console[level] = (...args) => {
+                    window.parent.postMessage({
+                        type: 'GHOST_CONSOLE',
+                        level: level,
+                        msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')
+                    }, '*');
+                    if(original) original.apply(console, args);
+                };
+            });
+
+            // 2. Hook Fetch
+            const oldFetch = window.fetch;
+            window.fetch = async (...args) => {
+                const url = args[0] instanceof Request ? args[0].url : args[0];
+                window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH', url: url }, '*');
+                try {
+                    const res = await oldFetch(...args);
+                    window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH_RES', url: url, status: res.status }, '*');
+                    return res;
+                } catch(e) {
+                    window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH_ERR', url: url, status: 'FAILED' }, '*');
+                    throw e;
+                }
+            };
+
+            // 3. Hook XHR
+            const oldXHR = window.XMLHttpRequest.prototype.open;
+            window.XMLHttpRequest.prototype.open = function(method, url) {
+                window.parent.postMessage({ type: 'GHOST_NET', method: method, url: url }, '*');
+                return oldXHR.apply(this, arguments);
+            };
+
+            // 4. Prevention of frame busting
+            window.onbeforeunload = function() { return null; };
+            
+            console.log("GHOST_INJECT: Monitoring active on " + window.location.href);
+        })();
+        <\/script>
+    `;
 
     const contentWrapper = document.createElement('div');
     
-    // Deep Sanitization: Remove frame-breaking and detection scripts
+    // More aggressive sanitization for frame-breaking scripts
     let sanitizedHtml = html
-        .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, (match, content) => {
-            if (content.includes('window.top') || content.includes('parent.location') || content.includes('top.location')) {
-                return '<!-- Stripped Detection Script -->';
-            }
-            return match;
-        })
         .replace(/window\.top/gi, 'window.self')
         .replace(/top\.location/gi, 'window.self.location')
-        .replace(/parent\.location/gi, 'window.self.location');
+        .replace(/parent\.location/gi, 'window.self.location')
+        .replace(/document\.domain/gi, '""');
 
     contentWrapper.innerHTML = `
         <style>
-            html, body { background: white !important; color: black !important; font-family: sans-serif; }
-            iframe { display: none !important; } /* Hide nested frames that might loop */
+            html, body { background: white !important; color: black !important; font-family: sans-serif; height: 100%; margin:0; padding:0; }
         </style>
         <base href="${baseUrl}">
+        ${debugScript}
         ${sanitizedHtml}
     `;
 
-    // Re-bind Click Events
+    // Intercept Links
     contentWrapper.querySelectorAll('a').forEach(link => {
         link.onclick = (e) => {
             const href = link.getAttribute('href');
-            if (href && !href.startsWith('#')) {
+            if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
                 e.preventDefault();
                 request(new URL(href, baseUrl).href);
             }
         };
     });
 
+    // Intercept Forms
     contentWrapper.querySelectorAll('form').forEach(form => {
         form.onsubmit = (e) => {
             e.preventDefault();
             const fd = new FormData(form);
             const data = new URLSearchParams(fd).toString();
             const action = new URL(form.getAttribute('action') || '', baseUrl).href;
-            request(action, 'POST', data);
+            const method = (form.getAttribute('method') || 'GET').toUpperCase();
+            request(action, method, data);
         };
     });
 
     shadow.appendChild(contentWrapper);
-    log(`UI_READY: ${new URL(baseUrl).pathname}`, "success");
+    uiLog(consoleLog, `UI: Rendered ${new URL(baseUrl).pathname}`, "success");
 }
 
 window.onload = () => {
-    log("GHOST_PROXY KERNEL v4.3 ONLINE");
+    uiLog(consoleLog, "GHOST_PROXY KERNEL v4.3 ONLINE");
     refreshSocksPool();
 };
 
