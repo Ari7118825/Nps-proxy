@@ -79,11 +79,14 @@
         .log-error { color: #ff4444; border-left-color: #ff4444; background: rgba(255,68,68,0.05); }
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
         .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
-        .log-warn { color: var(--log-warn); border-left-color: var(--log-warn); }
         .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
         #viewer-container { flex: 1; background: #fff; position: relative; overflow: hidden; display: flex; flex-direction: column; }
-        #render-target { flex: 1; position: relative; height: 100%; overflow: auto; background: white; }
+        
+        /* Iframe styling */
+        #ghost-frame {
+            width: 100%; height: 100%; border: none; background: white;
+        }
 
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -110,63 +113,46 @@
 
 <div id="nav">
     <span class="brand">GHOST_PROXY v4.4</span>
-    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL (e.g. croxyproxy.com)">
+    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL">
     <button onclick="launch()">EXECUTE BYPASS</button>
     <button class="alt" onclick="location.reload()">HARD RESET</button>
 </div>
 
 <div id="main-layout">
     <div class="side-panel" id="console-panel">
-        <div class="panel-header">
-            <span>Kernel Monitor</span>
-            <span style="color: #666" id="console-count">0</span>
-        </div>
+        <div class="panel-header"><span>Kernel Monitor</span><span id="console-count">0</span></div>
         <div id="console-log" class="log-container"></div>
     </div>
 
     <div id="viewer-container">
-        <div id="render-target">
-            <div id="loader">
-                <div class="spinner"></div>
-                <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green); text-align: center;">
-                    FRAGMENTING PACKETS...<br>
-                    <span id="load-subtext" style="font-size: 10px; color: #888;">Establishing Tunnel</span>
-                </p>
-            </div>
-            <div id="placeholder" style="padding: 100px 40px; color: #333; text-align: center;">
-                <h2 style="color: #000">Ghost Engine v4.4</h2>
-                <p>Waiting for command execution...</p>
-                <div style="font-size: 12px; color: #888; margin-top: 20px;">
-                    Debug Mode: ACTIVE | SOCKS Intercept: ON
-                </div>
-            </div>
+        <iframe id="ghost-frame"></iframe>
+        <div id="loader">
+            <div class="spinner"></div>
+            <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green); text-align: center;">
+                INJECTING GHOST FRAME...<br>
+                <span id="load-subtext" style="font-size: 10px; color: #888;">Synchronizing Environment</span>
+            </p>
         </div>
         <div id="status-bar">
-            <span>NODES: <span id="node-count">0</span></span>
+            <span>MODE: IFRAME_ISOLATION</span>
             <span>LAST STATUS: <span id="last-status">IDLE</span></span>
-            <span>ENGINE: PUTER_NET_SDK</span>
         </div>
     </div>
 
     <div class="side-panel" id="network-panel">
-        <div class="panel-header">
-            <span>Traffic Analyzer</span>
-            <span style="color: #666" id="net-count">0</span>
-        </div>
+        <div class="panel-header"><span>Traffic Analyzer</span><span id="net-count">0</span></div>
         <div id="network-log" class="log-container"></div>
     </div>
 </div>
 
 <script>
-const renderTarget = document.getElementById('render-target');
+const ghostFrame = document.getElementById('ghost-frame');
 const urlInput = document.getElementById('url-input');
 const consoleLog = document.getElementById('console-log');
 const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
-const loadSubtext = document.getElementById('load-subtext');
 
 let sessionCookies = "";
-let socksList = [];
 
 function uiLog(target, message, type = 'info') {
     const entry = document.createElement('div');
@@ -180,63 +166,34 @@ function uiLog(target, message, type = 'info') {
     counter.innerText = parseInt(counter.innerText) + 1;
 }
 
+// Listen for the "Ghost Watcher" to report redirects or clicks
 window.addEventListener('message', (event) => {
     const data = event.data;
-    if (data.type === 'GHOST_CONSOLE') {
-        uiLog(consoleLog, `[CHILD] ${data.msg}`, data.level || 'info');
-    } else if (data.type === 'GHOST_NET') {
-        uiLog(networkLog, `<b>${data.method}</b> ${data.url} <small>(${data.status || '...'})</small>`, 'net');
+    if (data.type === 'GHOST_NAV') {
+        uiLog(consoleLog, `WATCHER: Detected move to ${data.url}`, 'success');
+        request(data.url);
     }
 });
 
-async function refreshSocksPool() {
-    uiLog(consoleLog, "CORE: Polling proxy providers...", "info");
-    const providers = [
-        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000",
-        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt"
-    ];
-
-    for (const url of providers) {
-        try {
-            const resp = await puter.net.fetch(url);
-            const text = await resp.text();
-            const found = text.trim().split('\n').filter(l => l.includes(':'));
-            socksList = [...new Set([...socksList, ...found])];
-            if (socksList.length > 0) break;
-        } catch (e) {
-            uiLog(consoleLog, `CORE: Provider ${new URL(url).hostname} failed.`, "warn");
-        }
-    }
-
-    document.getElementById('node-count').innerText = socksList.length;
-    uiLog(consoleLog, `CORE: Loaded ${socksList.length} unique SOCKS nodes.`, "success");
-}
-
 async function launch() {
-    if (socksList.length === 0) await refreshSocksPool();
     request(urlInput.value);
 }
 
-async function request(targetUrl, method = 'GET', body = null, depth = 0) {
-    if (depth > 15) return uiLog(consoleLog, "CRITICAL: Max jump limit reached.", "error");
+async function request(targetUrl, method = 'GET', body = null) {
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
-
     urlInput.value = targetUrl;
-    uiLog(consoleLog, `FETCHING: ${targetUrl}`, "info");
+    uiLog(consoleLog, `PULL: ${targetUrl}`, "info");
     uiLog(networkLog, `${method} ${targetUrl}`, "net");
     
     loader.style.display = 'flex';
-    loadSubtext.innerText = `Connecting via Tunnel...`;
 
     try {
         const options = {
             method: method,
             headers: {
                 'Cookie': sessionCookies,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Origin': new URL(targetUrl).origin,
-                'Referer': targetUrl
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             }
         };
         
@@ -252,84 +209,80 @@ async function request(targetUrl, method = 'GET', body = null, depth = 0) {
         if (newCookies) sessionCookies = newCookies;
 
         let html = await response.text();
-        
-        // Removed bypass search logic entirely to allow page's internal scripts to handle redirection.
-        render(html, targetUrl);
+        renderToFrame(html, targetUrl);
 
     } catch (err) {
         uiLog(consoleLog, `NET_ERR: ${err.message}`, "error");
     } finally {
-        loader.style.display = 'none';
+        setTimeout(() => { loader.style.display = 'none'; }, 500);
     }
 }
 
-function render(html, baseUrl) {
-    const placeholder = document.getElementById('placeholder');
-    if (placeholder) placeholder.remove();
+function renderToFrame(html, baseUrl) {
+    const isSpecialPage = baseUrl.includes('/servers') || baseUrl.includes('proxy.php');
+    
+    // Patch scripts for frame compatibility
+    let patched = html
+        .replace(/window\.top/gi, 'window.self')
+        .replace(/top\.location/gi, 'window.self.location')
+        .replace(/parent\.location/gi, 'window.self.location');
 
-    let shadow = renderTarget.shadowRoot || renderTarget.attachShadow({mode: 'open'});
-    shadow.innerHTML = '';
-
-    const debugScript = `
+    // The Watcher script monitors for changes and handles navigation
+    const watcher = `
         <script>
         (function() {
-            const logToParent = (level, msg) => {
-                window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
-            };
             window.top = window.self;
             window.parent = window.self;
-            logToParent('success', 'INJECT: Interceptor live on ' + window.location.host);
+
+            const notify = (url) => {
+                window.parent.postMessage({ type: 'GHOST_NAV', url: new URL(url, "${baseUrl}").href }, '*');
+            };
+
+            // Intercept standard location changes
+            window.location.replace = notify;
+            window.location.assign = notify;
+
+            // Intercept clicks
+            document.addEventListener('click', (e) => {
+                const a = e.target.closest('a');
+                if (a && a.href && !a.href.startsWith('#') && !a.href.startsWith('javascript:')) {
+                    e.preventDefault();
+                    notify(a.href);
+                }
+            }, true);
+
+            // Intercept form submits
+            document.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const form = e.target;
+                const fd = new FormData(form);
+                const data = new URLSearchParams(fd).toString();
+                const action = new URL(form.getAttribute('action') || '', "${baseUrl}").href;
+                notify(action); 
+                // Note: Simplified for the demo, multi-method handling usually goes here
+            }, true);
         })();
         <\/script>
     `;
 
-    const contentWrapper = document.createElement('div');
-    contentWrapper.style.minHeight = "100%";
-    contentWrapper.style.backgroundColor = "white";
-    
-    let sanitizedHtml = html
-        .replace(/window\.top/gi, 'window.self')
-        .replace(/top\.location/gi, 'window.self.location')
-        .replace(/parent\.location/gi, 'window.self.location')
-        .replace(/target="_top"/gi, 'target="_self"');
+    // Construct the document inside the frame
+    const blob = new Blob([`
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <base href="${baseUrl}">
+                ${isSpecialPage ? '' : watcher}
+            </head>
+            <body>
+                ${patched}
+            </body>
+        </html>
+    `], { type: 'text/html' });
 
-    contentWrapper.innerHTML = `
-        <base href="${baseUrl}">
-        ${debugScript}
-        ${sanitizedHtml}
-    `;
-
-    // Intercept clicks on links
-    contentWrapper.querySelectorAll('a').forEach(link => {
-        link.addEventListener('click', (e) => {
-            const href = link.getAttribute('href');
-            if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
-                e.preventDefault();
-                request(new URL(href, baseUrl).href);
-            }
-        });
-    });
-
-    // Intercept form submissions
-    contentWrapper.querySelectorAll('form').forEach(form => {
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            const fd = new FormData(form);
-            const data = new URLSearchParams(fd).toString();
-            const action = new URL(form.getAttribute('action') || '', baseUrl).href;
-            const method = (form.getAttribute('method') || 'GET').toUpperCase();
-            request(action, method, data);
-        });
-    });
-
-    shadow.appendChild(contentWrapper);
+    ghostFrame.src = URL.createObjectURL(blob);
 }
 
-window.onload = () => {
-    uiLog(consoleLog, "SYSTEM: Kernel 4.4.1 Active.");
-    refreshSocksPool();
-};
-
+window.onload = () => { uiLog(consoleLog, "ENGINE: Iframe Bridge Online."); };
 urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
 </script>
 
