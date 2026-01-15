@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy v4.3 | Debug & Traffic Monitor</title>
+    <title>GhostProxy v4.4 | Debug & Traffic Monitor</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -13,6 +13,7 @@
             --border-color: #333;
             --log-blue: #44aaff;
             --log-purple: #bb88ff;
+            --log-warn: #ffcc00;
         }
 
         body, html {
@@ -50,10 +51,8 @@
 
         #main-layout { display: flex; height: calc(100% - 62px); width: 100%; }
 
-        /* Left Console: Browser Logs */
-        /* Right Console: Network Traffic */
         .side-panel {
-            width: 300px; background: #000;
+            width: 320px; background: #000;
             border-right: 1px solid var(--border-color);
             display: flex; flex-direction: column;
             font-family: 'Consolas', monospace; font-size: 11px;
@@ -67,74 +66,91 @@
             display: flex; justify-content: space-between;
         }
 
-        .log-container { flex: 1; padding: 10px; overflow-y: auto; overflow-x: hidden; }
+        .log-container { flex: 1; padding: 10px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column-reverse; }
 
         .log-entry { 
             margin-bottom: 6px; border-left: 2px solid #222; 
             padding-left: 8px; word-break: break-all; 
-            line-height: 1.4;
+            line-height: 1.4; animation: fadeIn 0.2s ease-out;
         }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+
         .log-time { color: #666; margin-right: 5px; font-size: 10px; }
-        .log-error { color: #ff4444; border-left-color: #ff4444; }
+        .log-error { color: #ff4444; border-left-color: #ff4444; background: rgba(255,68,68,0.05); }
         .log-success { color: var(--neon-green); border-left-color: var(--neon-green); }
         .log-info { color: var(--log-blue); border-left-color: var(--log-blue); }
+        .log-warn { color: var(--log-warn); border-left-color: var(--log-warn); }
         .log-net { color: var(--log-purple); border-left-color: var(--log-purple); }
 
-        #viewer-container { flex: 1; background: #fff; position: relative; overflow: auto; display: flex; flex-direction: column; }
-        #render-target { flex: 1; position: relative; }
+        #viewer-container { flex: 1; background: #fff; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+        #render-target { flex: 1; position: relative; height: 100%; overflow: auto; background: white; }
 
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.95); display: none;
+            background: rgba(0,0,0,0.9); display: none;
             justify-content: center; align-items: center; z-index: 50; flex-direction: column;
+            backdrop-filter: blur(4px);
         }
 
         .spinner {
-            width: 40px; height: 40px;
-            border: 4px solid rgba(0,255,65,0.1);
+            width: 50px; height: 50px;
+            border: 3px solid rgba(0,255,65,0.1);
             border-left-color: var(--neon-green);
-            border-radius: 50%; animation: spin 1s linear infinite;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        #status-bar {
+            padding: 5px 15px; background: #111; border-top: 1px solid var(--border-color);
+            font-size: 10px; display: flex; gap: 20px;
+        }
     </style>
 </head>
 <body>
 
 <div id="nav">
-    <span class="brand">GHOST_PROXY v4.3</span>
-    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Target URL...">
-    <button onclick="launch()">EXECUTE</button>
-    <button class="alt" onclick="location.reload()">REFRESH UI</button>
+    <span class="brand">GHOST_PROXY v4.4</span>
+    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL (e.g. croxyproxy.com)">
+    <button onclick="launch()">EXECUTE BYPASS</button>
+    <button class="alt" onclick="location.reload()">HARD RESET</button>
 </div>
 
 <div id="main-layout">
-    <!-- LEFT: Console Logs -->
     <div class="side-panel" id="console-panel">
         <div class="panel-header">
-            <span>Browser Console</span>
+            <span>Kernel Monitor</span>
             <span style="color: #666" id="console-count">0</span>
         </div>
         <div id="console-log" class="log-container"></div>
     </div>
 
-    <!-- CENTER: The Viewer -->
     <div id="viewer-container">
         <div id="render-target">
             <div id="loader">
                 <div class="spinner"></div>
-                <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green);">INTERCEPTING DATA STREAMS...</p>
+                <p id="loader-text" style="margin-top: 15px; font-family: monospace; font-size: 12px; color: var(--neon-green); text-align: center;">
+                    FRAGMENTING PACKETS...<br>
+                    <span id="load-subtext" style="font-size: 10px; color: #888;">Establishing Tunnel</span>
+                </p>
             </div>
-            <div id="placeholder" style="padding: 40px; color: #999; text-align: center;">
-                <h2>Proxy Engine Ready</h2>
-                <p>Injecting monitoring scripts into tunnel...</p>
+            <div id="placeholder" style="padding: 100px 40px; color: #333; text-align: center;">
+                <h2 style="color: #000">Ghost Engine v4.4</h2>
+                <p>Waiting for command execution...</p>
+                <div style="font-size: 12px; color: #888; margin-top: 20px;">
+                    Debug Mode: ACTIVE | SOCKS Intercept: ON
+                </div>
             </div>
+        </div>
+        <div id="status-bar">
+            <span>NODES: <span id="node-count">0</span></span>
+            <span>LAST STATUS: <span id="last-status">IDLE</span></span>
+            <span>ENGINE: PUTER_NET_SDK</span>
         </div>
     </div>
 
-    <!-- RIGHT: Network Traffic -->
     <div class="side-panel" id="network-panel">
         <div class="panel-header">
-            <span>Network Traffic</span>
+            <span>Traffic Analyzer</span>
             <span style="color: #666" id="net-count">0</span>
         </div>
         <div id="network-log" class="log-container"></div>
@@ -147,11 +163,11 @@ const urlInput = document.getElementById('url-input');
 const consoleLog = document.getElementById('console-log');
 const networkLog = document.getElementById('network-log');
 const loader = document.getElementById('loader');
+const loadSubtext = document.getElementById('load-subtext');
 
 let sessionCookies = "";
 let socksList = [];
 
-// Helper for UI logging
 function uiLog(target, message, type = 'info') {
     const entry = document.createElement('div');
     entry.className = `log-entry log-${type}`;
@@ -159,32 +175,41 @@ function uiLog(target, message, type = 'info') {
     entry.innerHTML = `<span class="log-time">[${time}]</span> ${message}`;
     target.prepend(entry);
     
-    // Update counters
     const countId = target.id === 'console-log' ? 'console-count' : 'net-count';
     const counter = document.getElementById(countId);
     counter.innerText = parseInt(counter.innerText) + 1;
 }
 
-// BRIDGE: Listen for messages from the "Proxied" page
 window.addEventListener('message', (event) => {
     const data = event.data;
     if (data.type === 'GHOST_CONSOLE') {
-        uiLog(consoleLog, `[${data.level}] ${data.msg}`, data.level === 'error' ? 'error' : 'info');
+        uiLog(consoleLog, `[CHILD] ${data.msg}`, data.level || 'info');
     } else if (data.type === 'GHOST_NET') {
-        uiLog(networkLog, `<b>${data.method}</b> ${data.url} <br><small>Status: ${data.status || 'Pending'}</small>`, 'net');
+        uiLog(networkLog, `<b>${data.method}</b> ${data.url} <small>(${data.status || '...'})</small>`, 'net');
     }
 });
 
 async function refreshSocksPool() {
-    uiLog(consoleLog, "SYSTEM: Refreshing SOCKS pool...", "success");
-    try {
-        const resp = await puter.net.fetch("https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000&country=all&simplified=true");
-        const text = await resp.text();
-        socksList = text.trim().split('\n').filter(l => l.includes(':'));
-        uiLog(consoleLog, `SYSTEM: ${socksList.length} nodes active.`, "success");
-    } catch (e) {
-        uiLog(consoleLog, "SYSTEM: Failed to load SOCKS pool. Using direct tunnel.", "error");
+    uiLog(consoleLog, "CORE: Polling proxy providers...", "info");
+    const providers = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=5000",
+        "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt"
+    ];
+
+    for (const url of providers) {
+        try {
+            const resp = await puter.net.fetch(url);
+            const text = await resp.text();
+            const found = text.trim().split('\n').filter(l => l.includes(':'));
+            socksList = [...new Set([...socksList, ...found])];
+            if (socksList.length > 0) break;
+        } catch (e) {
+            uiLog(consoleLog, `CORE: Provider ${new URL(url).hostname} failed.`, "warn");
+        }
     }
+
+    document.getElementById('node-count').innerText = socksList.length;
+    uiLog(consoleLog, `CORE: Loaded ${socksList.length} unique SOCKS nodes.`, "success");
 }
 
 async function launch() {
@@ -193,65 +218,46 @@ async function launch() {
 }
 
 async function request(targetUrl, method = 'GET', body = null, depth = 0) {
-    if (depth > 8) return uiLog(consoleLog, "LIMIT: Max recursion reached", "error");
+    if (depth > 15) return uiLog(consoleLog, "CRITICAL: Max jump limit reached.", "error");
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
 
     urlInput.value = targetUrl;
-    uiLog(networkLog, `OUTBOUND: ${method} ${targetUrl}`, "net");
+    uiLog(consoleLog, `FETCHING: ${targetUrl}`, "info");
+    uiLog(networkLog, `${method} ${targetUrl}`, "net");
+    
     loader.style.display = 'flex';
+    loadSubtext.innerText = `Connecting via Tunnel...`;
 
     try {
         const options = {
             method: method,
             headers: {
                 'Cookie': sessionCookies,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Origin': new URL(targetUrl).origin,
+                'Referer': targetUrl
             }
         };
+        
         if (body) {
             options.body = body;
             options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
         }
 
         const response = await puter.net.fetch(targetUrl, options);
+        document.getElementById('last-status').innerText = response.status;
+        
         const newCookies = response.headers.get('set-cookie');
         if (newCookies) sessionCookies = newCookies;
 
         let html = await response.text();
         
-        // --- ADVANCED AUTO-LAUNCH FIX ---
-        // If we are stuck on the "Launching" page, look for the final destination URL
-        if (html.includes('Proxy is launching') || html.includes('id="loading"') || html.includes('launching...')) {
-            uiLog(consoleLog, "STALL: Proxy launch sequence detected. Scanning for exit URL...", "warn");
-            
-            // Search for direct location replaces or variable-based URLs
-            const patterns = [
-                /location\.replace\(['"]([^'"]+)['"]\)/,
-                /window\.location\s*=\s*['"]([^'"]+)['"]/,
-                /href\s*=\s*['"]([^'"]+proxy\.php[^'"]+)['"]/,
-                /url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/
-            ];
-
-            for (let pattern of patterns) {
-                const match = html.match(pattern);
-                if (match && match[1]) {
-                    uiLog(consoleLog, `BYPASS: Found exit path: ${match[1]}`, "success");
-                    return request(new URL(match[1], targetUrl).href, 'GET', null, depth + 1);
-                }
-            }
-
-            // If no URL found, check if there's a specific form we should have submitted
-            const formMatch = html.match(/<form[^>]+action=['"]([^'"]+)['"]/);
-            if (formMatch && html.includes('autostart')) {
-                uiLog(consoleLog, "BYPASS: Found autostart form. Forcing submission...", "success");
-                return request(new URL(formMatch[1], targetUrl).href, 'POST', 'btn=1', depth + 1);
-            }
-        }
-
+        // Removed bypass search logic entirely to allow page's internal scripts to handle redirection.
         render(html, targetUrl);
+
     } catch (err) {
-        uiLog(consoleLog, `BRIDGE_ERR: ${err.message}`, "error");
+        uiLog(consoleLog, `NET_ERR: ${err.message}`, "error");
     } finally {
         loader.style.display = 'none';
     }
@@ -267,96 +273,60 @@ function render(html, baseUrl) {
     const debugScript = `
         <script>
         (function() {
-            // 1. Hook Console
-            ['log', 'error', 'warn', 'info'].forEach(level => {
-                const original = console[level];
-                console[level] = (...args) => {
-                    window.parent.postMessage({
-                        type: 'GHOST_CONSOLE',
-                        level: level,
-                        msg: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')
-                    }, '*');
-                    if(original) original.apply(console, args);
-                };
-            });
-
-            // 2. Hook Fetch
-            const oldFetch = window.fetch;
-            window.fetch = async (...args) => {
-                const url = args[0] instanceof Request ? args[0].url : args[0];
-                window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH', url: url }, '*');
-                try {
-                    const res = await oldFetch(...args);
-                    window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH_RES', url: url, status: res.status }, '*');
-                    return res;
-                } catch(e) {
-                    window.parent.postMessage({ type: 'GHOST_NET', method: 'FETCH_ERR', url: url, status: 'FAILED' }, '*');
-                    throw e;
-                }
+            const logToParent = (level, msg) => {
+                window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
             };
-
-            // 3. Hook XHR
-            const oldXHR = window.XMLHttpRequest.prototype.open;
-            window.XMLHttpRequest.prototype.open = function(method, url) {
-                window.parent.postMessage({ type: 'GHOST_NET', method: method, url: url }, '*');
-                return oldXHR.apply(this, arguments);
-            };
-
-            // 4. Prevention of frame busting
-            window.onbeforeunload = function() { return null; };
-            
-            console.log("GHOST_INJECT: Monitoring active on " + window.location.href);
+            window.top = window.self;
+            window.parent = window.self;
+            logToParent('success', 'INJECT: Interceptor live on ' + window.location.host);
         })();
         <\/script>
     `;
 
     const contentWrapper = document.createElement('div');
+    contentWrapper.style.minHeight = "100%";
+    contentWrapper.style.backgroundColor = "white";
     
-    // More aggressive sanitization for frame-breaking scripts
     let sanitizedHtml = html
         .replace(/window\.top/gi, 'window.self')
         .replace(/top\.location/gi, 'window.self.location')
         .replace(/parent\.location/gi, 'window.self.location')
-        .replace(/document\.domain/gi, '""');
+        .replace(/target="_top"/gi, 'target="_self"');
 
     contentWrapper.innerHTML = `
-        <style>
-            html, body { background: white !important; color: black !important; font-family: sans-serif; height: 100%; margin:0; padding:0; }
-        </style>
         <base href="${baseUrl}">
         ${debugScript}
         ${sanitizedHtml}
     `;
 
-    // Intercept Links
+    // Intercept clicks on links
     contentWrapper.querySelectorAll('a').forEach(link => {
-        link.onclick = (e) => {
+        link.addEventListener('click', (e) => {
             const href = link.getAttribute('href');
             if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {
                 e.preventDefault();
                 request(new URL(href, baseUrl).href);
             }
-        };
+        });
     });
 
-    // Intercept Forms
+    // Intercept form submissions
     contentWrapper.querySelectorAll('form').forEach(form => {
-        form.onsubmit = (e) => {
+        form.addEventListener('submit', (e) => {
             e.preventDefault();
             const fd = new FormData(form);
             const data = new URLSearchParams(fd).toString();
             const action = new URL(form.getAttribute('action') || '', baseUrl).href;
             const method = (form.getAttribute('method') || 'GET').toUpperCase();
             request(action, method, data);
-        };
+        });
     });
 
     shadow.appendChild(contentWrapper);
-    uiLog(consoleLog, `UI: Rendered ${new URL(baseUrl).pathname}`, "success");
 }
 
 window.onload = () => {
-    uiLog(consoleLog, "GHOST_PROXY KERNEL v4.3 ONLINE");
+    uiLog(consoleLog, "SYSTEM: Kernel 4.4.1 Active.");
     refreshSocksPool();
 };
 
