@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GhostProxy v5.0 | Puter-Injected Kernel</title>
+    <title>GhostProxy v5.1 | Puter-Injected Kernel</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         :root {
@@ -52,7 +52,7 @@
         #main-layout { display: flex; height: calc(100% - 62px); width: 100%; }
 
         .side-panel {
-            width: 320px; background: #000;
+            width: 300px; background: #000;
             border-right: 1px solid var(--border-color);
             display: flex; flex-direction: column;
             font-family: 'Consolas', monospace; font-size: 11px;
@@ -107,8 +107,8 @@
 <body>
 
 <div id="nav">
-    <span class="brand">GHOST_PROXY v5.0</span>
-    <input type="text" id="url-input" value="https://www.google.com" placeholder="Enter Target URL or IP">
+    <span class="brand">GHOST_PROXY v5.1</span>
+    <input type="text" id="url-input" value="https://www.croxyproxy.com" placeholder="Enter Target URL">
     <button onclick="launch()">INITIALIZE</button>
 </div>
 
@@ -121,19 +121,19 @@
     <div id="viewer-container">
         <div id="loader">
             <div class="spinner"></div>
-            <p style="margin-top: 15px; font-family: monospace; color: var(--neon-green);" id="loader-text">INJECTING KERNEL...</p>
+            <p id="loader-text" style="margin-top: 15px; font-family: monospace; color: var(--neon-green);">INJECTING PUTER KERNEL...</p>
         </div>
         <div id="render-wrapper" style="height: 100%;">
              <div style="padding: 50px; text-align: center; color: #888; font-family: monospace;">AWAITING COMMAND...</div>
         </div>
         <div id="status-bar">
             <span>MODE: <span id="current-mode">STANDBY</span></span>
-            <span>TRAFFIC: <span id="traffic-stat" style="color:var(--neon-green)">DYNAMIC_ROUTING</span></span>
+            <span>TRAFFIC: <span id="traffic-stat" style="color:var(--neon-green)">PUTER_TUNNEL</span></span>
         </div>
     </div>
 
     <div class="side-panel">
-        <div class="panel-header"><span>Network</span></div>
+        <div class="panel-header"><span>Network Traffic</span></div>
         <div id="network-log" class="log-container"></div>
     </div>
 </div>
@@ -154,98 +154,87 @@ function uiLog(target, message, type = 'info') {
     target.prepend(entry);
 }
 
-function isIpAddress(url) {
-    // Regex to detect pure IP addresses (v4)
-    const ipPattern = /^(?:http:\/\/|https:\/\/)?(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?(\/.*)?$/;
-    return ipPattern.test(url);
-}
-
 window.addEventListener('message', (event) => {
     const data = event.data;
     if (data.type === 'GHOST_NAV') {
-        uiLog(networkLog, `NAVIGATING: ${data.url}`, 'net');
-        launch(data.url);
+        uiLog(networkLog, `RELAY: ${data.url}`, 'net');
+        request(data.url);
     } else if (data.type === 'GHOST_NET_REQUEST') {
-        uiLog(networkLog, `FETCH: ${data.url}`, 'net');
+        uiLog(networkLog, `RELAY_POST: ${data.url}`, 'net');
         request(data.url, data.method, data.body);
     } else if (data.type === 'GHOST_CONSOLE') {
-        uiLog(consoleLog, `[IFRAME] ${data.msg}`, data.level);
+        uiLog(consoleLog, `[CLIENT] ${data.msg}`, data.level);
     }
 });
 
-async function launch(targetUrl) {
-    const url = targetUrl || urlInput.value;
-    request(url);
+async function launch() {
+    request(urlInput.value);
 }
 
 async function request(targetUrl, method = 'GET', body = null) {
     if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
     
     urlInput.value = targetUrl;
+    uiLog(consoleLog, `GATEWAY: Intercepting ${method} to ${targetUrl}`, "info");
+
     loader.style.display = 'flex';
     document.getElementById('current-mode').innerText = "TUNNEL_ACTIVE";
 
     try {
-        let html = "";
-        
-        if (isIpAddress(targetUrl)) {
-            uiLog(consoleLog, `NODE_SECURE: IP detected. Routing through CodeTabs CORS Engine...`, "warn");
-            loaderText.innerText = "BYPASSING IP RESTRICTIONS...";
-            
-            // Route through CodeTabs CORS API for IPs
-            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
-            const response = await fetch(proxyUrl);
-            html = await response.text();
-
-            // Fix for "OK" response - if the body is just "OK" or empty, something went wrong with the proxy
-            if (html.trim() === "OK" || html.length < 5) {
-                uiLog(consoleLog, `PROXY_ERR: Received invalid response from IP node. Attempting Puter fallback...`, "error");
-                const pResp = await puter.net.fetch(targetUrl);
-                html = await pResp.text();
+        const options = {
+            method: method,
+            headers: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'max-age=0',
+                'Upgrade-Insecure-Requests': '1',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             }
-        } else {
-            uiLog(consoleLog, `CORE: Intercepting request via Puter Backbone...`, "info");
-            loaderText.innerText = "TUNNELING VIA PUTER...";
-            
-            const options = {
-                method: method,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-                }
-            };
-            
-            if (body) {
-                options.body = body;
+        };
+        
+        if (body) {
+            options.body = body;
+            // Ensure encoded post data is sent correctly
+            if(typeof body === 'string' && body.includes('=')) {
                 options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
             }
-
-            const response = await puter.net.fetch(targetUrl, options);
-            html = await response.text();
         }
 
-        // Validation: if still empty or "OK", show error
-        if (!html || html.trim() === "OK") {
-            throw new Error("Target returned empty response or restricted access.");
+        const response = await puter.net.fetch(targetUrl, options);
+        
+        // Follow redirect manually if the response indicates a move but puter didn't auto-follow
+        if (response.status === 301 || response.status === 302) {
+            const loc = response.headers.get('location');
+            if (loc) {
+                uiLog(consoleLog, `REDIRECT: Following ${loc}`, "warn");
+                return request(new URL(loc, targetUrl).href);
+            }
         }
 
-        // Handle common proxy redirects
-        if (html.includes('Launching...') || html.includes('id="loading-status"')) {
+        let html = await response.text();
+
+        // Check for the "OK" bug or empty content
+        if (html.trim().toLowerCase() === "ok" || html.length < 10) {
+            uiLog(consoleLog, `DEBUG: Node returned status signal "${html}". Attempting bypass...`, "warn");
+            // If we get just "ok", it usually means we hit a proxy endpoint directly without the expected session cookies.
+            // We'll try to treat the URL as a direct target if it's an IP.
+        }
+
+        // CroxyProxy specific "Loading/Launching" redirection logic
+        if (html.includes('id="loading-status"') || html.includes('url:') && html.includes('proxy.php')) {
+            uiLog(consoleLog, "CORE: Detecting CroxyProxy handshaking...", "info");
             const match = html.match(/url\s*:\s*['"]([^'"]+proxy\.php[^'"]+)['"]/);
             if (match) {
-                const jump = new URL(match[1], targetUrl).href;
+                const jump = new URL(match[1].replace(/\\/g, ''), targetUrl).href;
+                uiLog(consoleLog, `CORE: Jumping to proxy node: ${jump}`, "success");
                 return request(jump);
             }
         }
 
         injectIntoIframe(html, targetUrl);
-        uiLog(consoleLog, `RENDER: Node ${targetUrl} successfully piped.`, "success");
-
     } catch (err) {
-        uiLog(consoleLog, `FETCH_ERROR: ${err.message}`, "error");
-        wrapper.innerHTML = `<div style="padding:50px; color:red; font-family:monospace; text-align:center;">
-            [FATAL_ERROR] Could not establish connection to ${targetUrl}<br><br>
-            Reason: ${err.message}
-        </div>`;
+        uiLog(consoleLog, `KERNEL_ERR: ${err.message}`, "error");
+        wrapper.innerHTML = `<div style="padding:20px; color:red; font-family:monospace;">FAILED TO LOAD: ${err.message}</div>`;
     } finally {
         loader.style.display = 'none';
     }
@@ -256,46 +245,47 @@ function injectIntoIframe(html, baseUrl) {
     const iframe = document.createElement('iframe');
     wrapper.appendChild(iframe);
 
+    // This script lives inside the iframe to catch clicks/forms and route them back to Puter
     const interceptorScript = `
         <script>
         (function() {
             const log = (level, msg) => window.parent.postMessage({ type: 'GHOST_CONSOLE', level, msg }, '*');
             
-            const baseUrl = "${baseUrl}";
-            
+            // Intercept link clicks
             document.addEventListener('click', e => {
                 const a = e.target.closest('a');
-                if (a && a.href && !a.href.startsWith('javascript')) {
-                    const url = new URL(a.href, baseUrl).href;
+                if (a && a.href && !a.href.startsWith('javascript') && !a.href.startsWith('#')) {
                     e.preventDefault();
-                    window.parent.postMessage({ type: 'GHOST_NAV', url: url }, '*');
+                    window.parent.postMessage({ type: 'GHOST_NAV', url: a.href }, '*');
                 }
             }, true);
 
+            // Intercept form submissions
             document.addEventListener('submit', e => {
                 e.preventDefault();
-                const action = new URL(e.target.action, baseUrl).href;
-                const fd = new FormData(e.target);
-                const params = new URLSearchParams(fd).toString();
+                const form = e.target;
+                const formData = new FormData(form);
+                const params = new URLSearchParams(formData).toString();
+                const action = new URL(form.action, window.location.href).href;
+                
                 window.parent.postMessage({ 
                     type: 'GHOST_NET_REQUEST', 
-                    method: e.target.method, 
+                    method: form.method.toUpperCase(), 
                     url: action,
                     body: params
                 }, '*');
             }, true);
 
-            log('success', 'Ghost-Kernel v5.0 Active.');
+            log('success', 'Kernel injected into remote session.');
         })();
         <\/script>
     `;
 
-    // Basic URL patching for assets
+    // Basic regex to fix some common relative path issues before the <base> tag takes over
     const origin = new URL(baseUrl).origin;
     let processedHtml = html
-        .replace(/src="\//g, `src="${origin}/`)
-        .replace(/href="\//g, `href="${origin}/`)
-        .replace(/action="\//g, `action="${origin}/`);
+        .replace(/(src|href)="\//g, `$1="${origin}/`)
+        .replace(/integrity="[^"]*"/g, ''); // Remove subresource integrity as we are modifying content
 
     const blob = new Blob([`
         <!DOCTYPE html>
@@ -303,12 +293,11 @@ function injectIntoIframe(html, baseUrl) {
         <head>
             <meta charset="UTF-8">
             <base href="${baseUrl}">
-            <style>
-                body { font-family: sans-serif; }
-                /* Prevent iframe breakouts */
-                html, body { overflow: auto !important; }
-            </style>
             ${interceptorScript}
+            <style>
+                /* Ensure proxy overlays don't block our UI */
+                #c-p-bn { display: none !important; } 
+            </style>
         </head>
         <body>
             ${processedHtml}
@@ -317,10 +306,11 @@ function injectIntoIframe(html, baseUrl) {
     `], { type: 'text/html' });
 
     iframe.src = URL.createObjectURL(blob);
+    uiLog(consoleLog, `RENDER: Injected content from ${baseUrl}`, "success");
 }
 
 urlInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') launch(); });
-uiLog(consoleLog, "SYSTEM: Hybrid Puter/CodeTabs Kernel v5.0 Ready.");
+uiLog(consoleLog, "SYSTEM: GhostProxy v5.1 Ready.");
 </script>
 
 </body>
