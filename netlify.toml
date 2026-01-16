@@ -1,5 +1,5 @@
 [[redirects]]
   from = "/*"
-  to = "https://croxyproxy.com//:splat"
+  to = "https://boring-umeko-yumicode-09216288.koyeb.app/:splat"
   status = 200
   force = true
