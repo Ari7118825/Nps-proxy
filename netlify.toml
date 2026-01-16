@@ -1,0 +1,5 @@
+[[redirects]]
+  from = "/my-proxy/*"
+  to = "https://effective-clementia-yumicode-8b00cced.koyeb.app/:splat"
+  status = 200
+  force = true
