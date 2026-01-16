@@ -53,7 +53,7 @@
 </div>
 
 <script>
-    // Proxy Pool for rotation and fallback
+    // Expanded Proxy Pool
     const PROXY_POOL = [
         "https://api.codetabs.com/v1/proxy?quest=",
         "https://api.allorigins.win/raw?url=",
@@ -71,10 +71,10 @@
         
         showLoader(true);
         
-        // Try proxies in order for the main document
         let html = null;
         let successfulProxy = PROXY_POOL[0];
 
+        // Rotation for the main document fetch
         for (const proxyBase of PROXY_POOL) {
             try {
                 const response = await fetch(proxyBase + encodeURIComponent(url));
@@ -84,12 +84,12 @@
                     break;
                 }
             } catch (err) {
-                console.warn(`Proxy ${proxyBase} failed, trying next...`);
+                console.warn(`Main Proxy ${proxyBase} failed.`);
             }
         }
 
         if (!html) {
-            alert("All proxies failed to fetch this site.");
+            alert("All proxies failed to fetch the site.");
             showLoader(false);
             return;
         }
@@ -99,17 +99,16 @@
             const doc = parser.parseFromString(html, 'text/html');
             const urlObj = new URL(url);
 
-            const fixUrl = (original, proxy) => {
+            // Function used for initial static rewrite
+            const fixUrl = (original) => {
                 if (!original || typeof original !== 'string') return original;
                 if (original.startsWith('data:') || original.startsWith('javascript:')) return original;
                 try {
                     const resolved = new URL(original, urlObj.href).href;
-                    // Prevent double proxying
-                    for (const p of PROXY_POOL) if (resolved.startsWith(p)) return resolved;
-                    return (proxy || successfulProxy) + encodeURIComponent(resolved);
-                } catch (e) {
-                    return original;
-                }
+                    // Pre-check if already proxied
+                    for (const p of PROXY_POOL) if (resolved.includes(p)) return resolved;
+                    return successfulProxy + encodeURIComponent(resolved);
+                } catch (e) { return original; }
             };
 
             // 1. Initial Static Rewrite
@@ -125,7 +124,7 @@
                 });
             });
 
-            // 2. Inject Advanced Interceptor with Rotation Logic
+            // 2. Inject the Interceptor System
             const script = doc.createElement('script');
             script.textContent = `
                 (function() {
@@ -135,8 +134,7 @@
                     function wrapUrl(url, proxyIndex = 0) {
                         if (!url || typeof url !== 'string') return url;
                         if (url.startsWith('data:') || url.startsWith('javascript:')) return url;
-                        // Check if already proxied
-                        for (const p of PROXY_POOL) if (url.startsWith(p)) return url;
+                        for (const p of PROXY_POOL) if (url.includes(p)) return url;
                         
                         try {
                             const resolved = new URL(url, BASE_URL).href;
@@ -144,10 +142,10 @@
                         } catch(e) { return url; }
                     }
 
-                    // --- PATCH FETCH WITH AUTO-RETRY ---
+                    // Patch Fetch with Rotation
                     const originalFetch = window.fetch;
                     window.fetch = async function(resource, init) {
-                        let url = (typeof resource === 'string') ? resource : resource.url;
+                        const url = (typeof resource === 'string') ? resource : resource.url;
                         
                         for (let i = 0; i < PROXY_POOL.length; i++) {
                             try {
@@ -157,27 +155,17 @@
                                 if (response.ok || i === PROXY_POOL.length - 1) return response;
                             } catch (err) {
                                 if (i === PROXY_POOL.length - 1) throw err;
-                                console.warn("Fetch failed on proxy " + i + ", retrying...");
                             }
                         }
                     };
 
-                    // --- PATCH XHR WITH AUTO-RETRY ---
+                    // Patch XHR with Rotation
                     const originalOpen = XMLHttpRequest.prototype.open;
-                    const originalSend = XMLHttpRequest.prototype.send;
-                    
                     XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                        this._url = url;
-                        this._method = method;
-                        this._args = args;
-                        this._proxyIndex = 0;
                         return originalOpen.apply(this, [method, wrapUrl(url, 0), ...args]);
                     };
 
-                    // Note: True XHR retry logic is complex for a static script, 
-                    // but wrapUrl(0) provides the first line of defense.
-
-                    // --- PATCH PROTOTYPES ---
+                    // Patch Prototypes for dynamically created elements
                     const descriptors = [
                         { obj: HTMLImageElement.prototype, prop: 'src' },
                         { obj: HTMLScriptElement.prototype, prop: 'src' },
@@ -196,34 +184,32 @@
                         });
                     });
 
-                    // --- NAVIGATION & DOM WATCHER ---
+                    // Navigation Interception
                     document.addEventListener('click', e => {
                         const a = e.target.closest('a');
                         if (a && a.href && !a.href.startsWith('#')) {
-                            // Extract original URL from any of the proxies
                             let finalUrl = a.href;
                             for (const p of PROXY_POOL) {
-                                if (finalUrl.startsWith(p)) {
-                                    finalUrl = decodeURIComponent(finalUrl.replace(p, ""));
+                                if (finalUrl.includes(p)) {
+                                    const parts = finalUrl.split(p);
+                                    finalUrl = decodeURIComponent(parts[parts.length - 1]);
                                     break;
                                 }
                             }
                             e.preventDefault();
                             window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
                         }
-                    });
+                    }, true);
 
-                    const observer = new MutationObserver(mutations => {
-                        mutations.forEach(mutation => {
-                            mutation.addedNodes.forEach(node => {
-                                if (node.nodeType === 1) {
-                                    if (node.tagName === 'A') node.href = wrapUrl(node.href, 0);
-                                    else if (node.src) node.src = wrapUrl(node.src, 0);
-                                }
-                            });
-                        });
+                    // Handle Form Submission
+                    document.addEventListener('submit', e => {
+                        e.preventDefault();
+                        const form = e.target;
+                        const action = new URL(form.action, BASE_URL).href;
+                        const formData = new URLSearchParams(new FormData(form)).toString();
+                        const finalUrl = action + (action.includes('?') ? '&' : '?') + formData;
+                        window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
                     });
-                    observer.observe(document, { childList: true, subtree: true });
                 })();
             `;
             doc.head.prepend(script);
@@ -231,8 +217,7 @@
             frame.srcdoc = doc.documentElement.outerHTML;
             
         } catch (err) {
-            console.error("Proxy processing error:", err);
-            alert("Error processing page content.");
+            console.error("Critical Proxy Error:", err);
         } finally {
             showLoader(false);
         }
