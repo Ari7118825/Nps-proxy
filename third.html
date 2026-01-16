@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Puter-Powered Cloud Proxy</title>
+    <script src="https://js.puter.com/v2/"></script>
+    <style>
+        body { background: #0f0f0f; color: #fff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .container { background: #1a1a1a; padding: 40px; border-radius: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.7); text-align: center; max-width: 500px; width: 90%; }
+        h1 { margin-bottom: 10px; font-weight: 300; }
+        input { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #333; background: #000; color: #fff; font-size: 1rem; box-sizing: border-box; margin-bottom: 20px; transition: border 0.3s; }
+        input:focus { border-color: #007bff; outline: none; }
+        button { background: #007bff; color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-size: 1rem; font-weight: bold; width: 100%; transition: transform 0.2s, background 0.3s; }
+        button:hover { background: #0056b3; transform: scale(1.02); }
+        .footer { margin-top: 20px; font-size: 0.8rem; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Cloud Browser</h1>
+        <p>Advanced Browser-in-Browser Proxy</p>
+        <input type="text" id="url-input" placeholder="Search or enter URL (e.g. discord.com)" onkeydown="if(event.key==='Enter') launchProxy()">
+        <button onclick="launchProxy()">Launch Website</button>
+        <div class="footer">Using Ultraviolet Engine + Puter Networking API</div>
+    </div>
+
+    <script src="uv/uv.bundle.js" defer></script>
+    <script src="uv/uv.config.js" defer></script>
+
+    <script>
+        async function launchProxy() {
+            const input = document.getElementById('url-input').value.trim();
+            if (!input) return;
+
+            // Simple URL normalization
+            let url = input;
+            if (!url.includes('.') && !url.includes('://')) {
+                url = 'https://www.google.com/search?q=' + encodeURIComponent(input);
+            } else if (!/^https?:\/\//i.test(url)) {
+                url = 'https://' + url;
+            }
+
+            // Register Service Worker
+            if ('serviceWorker' in navigator) {
+                try {
+                    await navigator.serviceWorker.register('./uv-sw.js', {
+                        scope: '/service/' 
+                    });
+                    
+                    // Navigate to the virtualized URL prefix
+                    // This creates the "CroxyProxy" style URL structure
+                    window.location.href = '/service/' + __uv$config.encodeUrl(url);
+                } catch (e) {
+                    alert('Service Worker failed! Host this on Puter.com or use HTTPS.');
+                    console.error(e);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
