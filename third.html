@@ -69,31 +69,28 @@
             const response = await fetch(PROXY_API + encodeURIComponent(url));
             let html = await response.text();
             
-            // Create a parser to manipulate the HTML as a DOM
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const urlObj = new URL(url);
 
-            // Function to fix a URL
             const fixUrl = (original) => {
                 if (!original || original.startsWith('data:') || original.startsWith('javascript:')) return original;
                 try {
-                    // Resolve relative path against the current target site
                     const resolved = new URL(original, urlObj.href).href;
-                    // Prepend the proxy API
+                    // Check if it's already proxied to avoid double-proxying
+                    if (resolved.startsWith(PROXY_API)) return resolved;
                     return PROXY_API + encodeURIComponent(resolved);
                 } catch (e) {
                     return original;
                 }
             };
 
-            // REWRITE ALL ATTRIBUTES
+            // 1. REWRITE ALL STATIC ATTRIBUTES
             const attributesToFix = ['href', 'src', 'action', 'srcset', 'data-src'];
             doc.querySelectorAll('*').forEach(el => {
                 attributesToFix.forEach(attr => {
                     if (el.hasAttribute(attr)) {
                         const val = el.getAttribute(attr);
-                        // We don't want to rewrite internal anchors like #top
                         if (val && !val.startsWith('#')) {
                             el.setAttribute(attr, fixUrl(val));
                         }
@@ -101,46 +98,73 @@
                 });
             });
 
-            // INJECT NAVIGATION HOOK
-            // This script stays inside the iframe to catch clicks and tell the parent to re-proxy
+            // 2. INJECT MONKEY PATCH & NAV HOOK
             const script = doc.createElement('script');
             script.textContent = `
-                document.addEventListener('click', e => {
-                    const a = e.target.closest('a');
-                    if (a && a.href) {
-                        // If it's a proxied URL, extract the original target
-                        const targetMatch = a.href.match(/quest=(.+)$/);
-                        const finalUrl = targetMatch ? decodeURIComponent(targetMatch[1]) : a.href;
-                        
-                        e.preventDefault();
-                        window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
-                    }
-                });
-                // Handle form submissions
-                document.addEventListener('submit', e => {
-                    e.preventDefault();
-                    const form = e.target;
-                    const formData = new FormData(form);
-                    const params = new URLSearchParams(formData).toString();
-                    const action = new URL(form.action, document.baseURI).href;
-                    const finalUrl = action + (action.includes('?') ? '&' : '?') + params;
-                    window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
-                });
-            `;
-            doc.head.appendChild(script);
+                (function() {
+                    const PROXY_API = "${PROXY_API}";
+                    const BASE_URL = "${urlObj.href}";
 
-            // Load the modified HTML
+                    function wrapUrl(url) {
+                        if (!url || typeof url !== 'string') return url;
+                        if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith(PROXY_API)) return url;
+                        try {
+                            const resolved = new URL(url, BASE_URL).href;
+                            return PROXY_API + encodeURIComponent(resolved);
+                        } catch(e) { return url; }
+                    }
+
+                    // Patch fetch
+                    const originalFetch = window.fetch;
+                    window.fetch = function(resource, init) {
+                        if (typeof resource === 'string') {
+                            resource = wrapUrl(resource);
+                        } else if (resource instanceof Request) {
+                            const newRequest = new Request(wrapUrl(resource.url), resource);
+                            resource = newRequest;
+                        }
+                        return originalFetch.call(this, resource, init);
+                    };
+
+                    // Patch XMLHttpRequest
+                    const originalOpen = XMLHttpRequest.prototype.open;
+                    XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                        return originalOpen.apply(this, [method, wrapUrl(url), ...args]);
+                    };
+
+                    // Navigation Hooks
+                    document.addEventListener('click', e => {
+                        const a = e.target.closest('a');
+                        if (a && a.href) {
+                            const targetMatch = a.href.match(/quest=(.+)$/);
+                            const finalUrl = targetMatch ? decodeURIComponent(targetMatch[1]) : a.href;
+                            e.preventDefault();
+                            window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
+                        }
+                    });
+
+                    document.addEventListener('submit', e => {
+                        e.preventDefault();
+                        const form = e.target;
+                        const action = new URL(form.action, BASE_URL).href;
+                        const formData = new URLSearchParams(new FormData(form)).toString();
+                        const finalUrl = action + (action.includes('?') ? '&' : '?') + formData;
+                        window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
+                    });
+                })();
+            `;
+            doc.head.prepend(script);
+
             frame.srcdoc = doc.documentElement.outerHTML;
             
         } catch (err) {
             console.error("Proxy error:", err);
-            alert("Could not load the page. Check the console or try a different URL.");
+            alert("Could not load the page.");
         } finally {
             showLoader(false);
         }
     }
 
-    // Handle messages from the iframe hook
     window.addEventListener('message', e => {
         if (e.data && e.data.type === 'proxyNav') {
             input.value = e.data.url;
