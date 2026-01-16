@@ -1,5 +1,5 @@
 [[redirects]]
-  from = "/my-proxy/*"
+  from = "/*"
   to = "https://yumi-prox.koyeb.app//:splat"
   status = 200
   force = true
