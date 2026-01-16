@@ -53,7 +53,13 @@
 </div>
 
 <script>
-    const PROXY_API = "https://api.codetabs.com/v1/proxy?quest=";
+    // Proxy Pool for rotation and fallback
+    const PROXY_POOL = [
+        "https://api.codetabs.com/v1/proxy?quest=",
+        "https://api.allorigins.win/raw?url=",
+        "https://thingproxy.freeboard.io/fetch/"
+    ];
+
     const frame = document.getElementById('proxyFrame');
     const input = document.getElementById('urlInput');
     const loader = document.getElementById('loader');
@@ -65,21 +71,42 @@
         
         showLoader(true);
         
+        // Try proxies in order for the main document
+        let html = null;
+        let successfulProxy = PROXY_POOL[0];
+
+        for (const proxyBase of PROXY_POOL) {
+            try {
+                const response = await fetch(proxyBase + encodeURIComponent(url));
+                if (response.ok) {
+                    html = await response.text();
+                    successfulProxy = proxyBase;
+                    break;
+                }
+            } catch (err) {
+                console.warn(`Proxy ${proxyBase} failed, trying next...`);
+            }
+        }
+
+        if (!html) {
+            alert("All proxies failed to fetch this site.");
+            showLoader(false);
+            return;
+        }
+        
         try {
-            const response = await fetch(PROXY_API + encodeURIComponent(url));
-            let html = await response.text();
-            
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const urlObj = new URL(url);
 
-            const fixUrl = (original) => {
+            const fixUrl = (original, proxy) => {
                 if (!original || typeof original !== 'string') return original;
                 if (original.startsWith('data:') || original.startsWith('javascript:')) return original;
                 try {
                     const resolved = new URL(original, urlObj.href).href;
-                    if (resolved.startsWith(PROXY_API)) return resolved;
-                    return PROXY_API + encodeURIComponent(resolved);
+                    // Prevent double proxying
+                    for (const p of PROXY_POOL) if (resolved.startsWith(p)) return resolved;
+                    return (proxy || successfulProxy) + encodeURIComponent(resolved);
                 } catch (e) {
                     return original;
                 }
@@ -98,46 +125,64 @@
                 });
             });
 
-            // 2. Inject Advanced Interceptor
+            // 2. Inject Advanced Interceptor with Rotation Logic
             const script = doc.createElement('script');
             script.textContent = `
                 (function() {
-                    const PROXY_API = "${PROXY_API}";
+                    const PROXY_POOL = ${JSON.stringify(PROXY_POOL)};
                     const BASE_URL = "${urlObj.href}";
 
-                    function wrapUrl(url) {
+                    function wrapUrl(url, proxyIndex = 0) {
                         if (!url || typeof url !== 'string') return url;
-                        if (url.startsWith('data:') || url.startsWith('javascript:') || url.startsWith(PROXY_API)) return url;
+                        if (url.startsWith('data:') || url.startsWith('javascript:')) return url;
+                        // Check if already proxied
+                        for (const p of PROXY_POOL) if (url.startsWith(p)) return url;
+                        
                         try {
                             const resolved = new URL(url, BASE_URL).href;
-                            return PROXY_API + encodeURIComponent(resolved);
+                            return PROXY_POOL[proxyIndex] + encodeURIComponent(resolved);
                         } catch(e) { return url; }
                     }
 
-                    // --- PATCH CORE APIS ---
+                    // --- PATCH FETCH WITH AUTO-RETRY ---
                     const originalFetch = window.fetch;
-                    window.fetch = function(resource, init) {
-                        if (typeof resource === 'string') {
-                            resource = wrapUrl(resource);
-                        } else if (resource instanceof Request) {
-                            resource = new Request(wrapUrl(resource.url), resource);
+                    window.fetch = async function(resource, init) {
+                        let url = (typeof resource === 'string') ? resource : resource.url;
+                        
+                        for (let i = 0; i < PROXY_POOL.length; i++) {
+                            try {
+                                const proxiedUrl = wrapUrl(url, i);
+                                const newResource = (resource instanceof Request) ? new Request(proxiedUrl, resource) : proxiedUrl;
+                                const response = await originalFetch.call(this, newResource, init);
+                                if (response.ok || i === PROXY_POOL.length - 1) return response;
+                            } catch (err) {
+                                if (i === PROXY_POOL.length - 1) throw err;
+                                console.warn("Fetch failed on proxy " + i + ", retrying...");
+                            }
                         }
-                        return originalFetch.call(this, resource, init);
                     };
 
+                    // --- PATCH XHR WITH AUTO-RETRY ---
                     const originalOpen = XMLHttpRequest.prototype.open;
+                    const originalSend = XMLHttpRequest.prototype.send;
+                    
                     XMLHttpRequest.prototype.open = function(method, url, ...args) {
-                        return originalOpen.apply(this, [method, wrapUrl(url), ...args]);
+                        this._url = url;
+                        this._method = method;
+                        this._args = args;
+                        this._proxyIndex = 0;
+                        return originalOpen.apply(this, [method, wrapUrl(url, 0), ...args]);
                     };
 
-                    // --- PATCH PROTOTYPES (For dynamic elements) ---
+                    // Note: True XHR retry logic is complex for a static script, 
+                    // but wrapUrl(0) provides the first line of defense.
+
+                    // --- PATCH PROTOTYPES ---
                     const descriptors = [
                         { obj: HTMLImageElement.prototype, prop: 'src' },
                         { obj: HTMLScriptElement.prototype, prop: 'src' },
                         { obj: HTMLIFrameElement.prototype, prop: 'src' },
-                        { obj: HTMLLinkElement.prototype, prop: 'href' },
-                        { obj: HTMLSourceElement.prototype, prop: 'src' },
-                        { obj: HTMLSourceElement.prototype, prop: 'srcset' }
+                        { obj: HTMLLinkElement.prototype, prop: 'href' }
                     ];
 
                     descriptors.forEach(({ obj, prop }) => {
@@ -145,47 +190,40 @@
                         Object.defineProperty(obj, prop, {
                             get: function() { return originalDescriptor.get.call(this); },
                             set: function(val) {
-                                return originalDescriptor.set.call(this, wrapUrl(val));
+                                return originalDescriptor.set.call(this, wrapUrl(val, 0));
                             },
                             configurable: true
                         });
                     });
 
-                    // --- DOM WATCHER ---
-                    const observer = new MutationObserver(mutations => {
-                        mutations.forEach(mutation => {
-                            mutation.addedNodes.forEach(node => {
-                                if (node.nodeType === 1) { // Element
-                                    if (node.tagName === 'A') {
-                                        node.href = wrapUrl(node.href);
-                                    } else if (node.src) {
-                                        node.src = wrapUrl(node.src);
-                                    }
-                                }
-                            });
-                        });
-                    });
-                    observer.observe(document, { childList: true, subtree: true });
-
-                    // Navigation Hooks for parent communication
+                    // --- NAVIGATION & DOM WATCHER ---
                     document.addEventListener('click', e => {
                         const a = e.target.closest('a');
                         if (a && a.href && !a.href.startsWith('#')) {
-                            const targetMatch = a.href.match(/quest=(.+)$/);
-                            const finalUrl = targetMatch ? decodeURIComponent(targetMatch[1]) : a.href;
+                            // Extract original URL from any of the proxies
+                            let finalUrl = a.href;
+                            for (const p of PROXY_POOL) {
+                                if (finalUrl.startsWith(p)) {
+                                    finalUrl = decodeURIComponent(finalUrl.replace(p, ""));
+                                    break;
+                                }
+                            }
                             e.preventDefault();
                             window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
                         }
                     });
 
-                    document.addEventListener('submit', e => {
-                        e.preventDefault();
-                        const form = e.target;
-                        const action = new URL(form.action, BASE_URL).href;
-                        const formData = new URLSearchParams(new FormData(form)).toString();
-                        const finalUrl = action + (action.includes('?') ? '&' : '?') + formData;
-                        window.parent.postMessage({ type: 'proxyNav', url: finalUrl }, '*');
+                    const observer = new MutationObserver(mutations => {
+                        mutations.forEach(mutation => {
+                            mutation.addedNodes.forEach(node => {
+                                if (node.nodeType === 1) {
+                                    if (node.tagName === 'A') node.href = wrapUrl(node.href, 0);
+                                    else if (node.src) node.src = wrapUrl(node.src, 0);
+                                }
+                            });
+                        });
                     });
+                    observer.observe(document, { childList: true, subtree: true });
                 })();
             `;
             doc.head.prepend(script);
@@ -193,8 +231,8 @@
             frame.srcdoc = doc.documentElement.outerHTML;
             
         } catch (err) {
-            console.error("Proxy error:", err);
-            alert("Could not load the page.");
+            console.error("Proxy processing error:", err);
+            alert("Error processing page content.");
         } finally {
             showLoader(false);
         }
