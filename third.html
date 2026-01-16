@@ -74,10 +74,10 @@
             const urlObj = new URL(url);
 
             const fixUrl = (original) => {
-                if (!original || original.startsWith('data:') || original.startsWith('javascript:')) return original;
+                if (!original || typeof original !== 'string') return original;
+                if (original.startsWith('data:') || original.startsWith('javascript:')) return original;
                 try {
                     const resolved = new URL(original, urlObj.href).href;
-                    // Check if it's already proxied to avoid double-proxying
                     if (resolved.startsWith(PROXY_API)) return resolved;
                     return PROXY_API + encodeURIComponent(resolved);
                 } catch (e) {
@@ -85,7 +85,7 @@
                 }
             };
 
-            // 1. REWRITE ALL STATIC ATTRIBUTES
+            // 1. Initial Static Rewrite
             const attributesToFix = ['href', 'src', 'action', 'srcset', 'data-src'];
             doc.querySelectorAll('*').forEach(el => {
                 attributesToFix.forEach(attr => {
@@ -98,7 +98,7 @@
                 });
             });
 
-            // 2. INJECT MONKEY PATCH & NAV HOOK
+            // 2. Inject Advanced Interceptor
             const script = doc.createElement('script');
             script.textContent = `
                 (function() {
@@ -114,28 +114,63 @@
                         } catch(e) { return url; }
                     }
 
-                    // Patch fetch
+                    // --- PATCH CORE APIS ---
                     const originalFetch = window.fetch;
                     window.fetch = function(resource, init) {
                         if (typeof resource === 'string') {
                             resource = wrapUrl(resource);
                         } else if (resource instanceof Request) {
-                            const newRequest = new Request(wrapUrl(resource.url), resource);
-                            resource = newRequest;
+                            resource = new Request(wrapUrl(resource.url), resource);
                         }
                         return originalFetch.call(this, resource, init);
                     };
 
-                    // Patch XMLHttpRequest
                     const originalOpen = XMLHttpRequest.prototype.open;
                     XMLHttpRequest.prototype.open = function(method, url, ...args) {
                         return originalOpen.apply(this, [method, wrapUrl(url), ...args]);
                     };
 
-                    // Navigation Hooks
+                    // --- PATCH PROTOTYPES (For dynamic elements) ---
+                    const descriptors = [
+                        { obj: HTMLImageElement.prototype, prop: 'src' },
+                        { obj: HTMLScriptElement.prototype, prop: 'src' },
+                        { obj: HTMLIFrameElement.prototype, prop: 'src' },
+                        { obj: HTMLLinkElement.prototype, prop: 'href' },
+                        { obj: HTMLSourceElement.prototype, prop: 'src' },
+                        { obj: HTMLSourceElement.prototype, prop: 'srcset' }
+                    ];
+
+                    descriptors.forEach(({ obj, prop }) => {
+                        const originalDescriptor = Object.getOwnPropertyDescriptor(obj, prop);
+                        Object.defineProperty(obj, prop, {
+                            get: function() { return originalDescriptor.get.call(this); },
+                            set: function(val) {
+                                return originalDescriptor.set.call(this, wrapUrl(val));
+                            },
+                            configurable: true
+                        });
+                    });
+
+                    // --- DOM WATCHER ---
+                    const observer = new MutationObserver(mutations => {
+                        mutations.forEach(mutation => {
+                            mutation.addedNodes.forEach(node => {
+                                if (node.nodeType === 1) { // Element
+                                    if (node.tagName === 'A') {
+                                        node.href = wrapUrl(node.href);
+                                    } else if (node.src) {
+                                        node.src = wrapUrl(node.src);
+                                    }
+                                }
+                            });
+                        });
+                    });
+                    observer.observe(document, { childList: true, subtree: true });
+
+                    // Navigation Hooks for parent communication
                     document.addEventListener('click', e => {
                         const a = e.target.closest('a');
-                        if (a && a.href) {
+                        if (a && a.href && !a.href.startsWith('#')) {
                             const targetMatch = a.href.match(/quest=(.+)$/);
                             const finalUrl = targetMatch ? decodeURIComponent(targetMatch[1]) : a.href;
                             e.preventDefault();
