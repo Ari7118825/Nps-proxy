@@ -1,5 +1,5 @@
 [[redirects]]
   from = "/*"
-  to = "https://boring-umeko-yumicode-09216288.koyeb.app/:splat"
+  to = "https://puter.com/:splat"
   status = 200
   force = true
